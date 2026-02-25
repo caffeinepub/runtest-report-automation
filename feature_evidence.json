@@ -1,0 +1,59 @@
+{
+  "kind": "feature_evidence_report",
+  "features": [
+    {
+      "featureId": "feature-rewrite-the-sheetjs-loading-mechanism-in-csvparser-ts-to-use-a-bundled-or-reliably-imported-sheetjs-package-e-g-via-npm-import-instead-of-lazy-loading-from-a-cdn-eliminating-the-cdn-fetch-failure-that-causes-the-upload-error",
+      "featureTitle": "Rewrite the SheetJS loading mechanism in csvParser.ts to use a bundled or reliably imported SheetJS package (e.g., via npm import) instead of lazy-loading from a CDN, eliminating the CDN fetch failure that causes the upload error.",
+      "files": [
+        "frontend/src/utils/csvParser.ts"
+      ],
+      "components": [
+        "core-infrastructure@1.0.2",
+        "shadcn-ui@1.0.0",
+        "build-template-react@1.0.0",
+        "initial-app@1.0.0",
+        "github-export-icp-cli@1.0.0"
+      ],
+      "testIds": [
+        "REQ-11"
+      ],
+      "confidence": "high"
+    },
+    {
+      "featureId": "feature-fix-the-file-reading-pipeline-in-csvimportsection-tsx-so-that-after-a-user-selects-one-or-more-csv-tsv-xls-or-xlsx-files-each-file-is-read-and-passed-to-the-parser-without-throwing-or-swallowing-an-unhandled-error-ensure-the-error-boundary-and-error-display-logic-in-csvimportsection-tsx-correctly-distinguishes-between-a-parse-warning-malformed-row-and-a-fatal-upload-error-so-users-only-see-a-fatal-error-message-when-the-file-truly-cannot-be-processed",
+      "featureTitle": "Fix the file reading pipeline in CSVImportSection.tsx so that after a user selects one or more CSV, TSV, XLS, or XLSX files, each file is read and passed to the parser without throwing or swallowing an unhandled error. Ensure the error boundary and error-display logic in CSVImportSection.tsx correctly distinguishes between a parse warning (malformed row) and a fatal upload error, so users only see a fatal error message when the file truly cannot be processed.",
+      "files": [
+        "frontend/src/components/CSVImportSection.tsx"
+      ],
+      "components": [
+        "core-infrastructure@1.0.2",
+        "shadcn-ui@1.0.0",
+        "build-template-react@1.0.0",
+        "initial-app@1.0.0",
+        "github-export-icp-cli@1.0.0"
+      ],
+      "testIds": [
+        "REQ-12"
+      ],
+      "confidence": "high"
+    },
+    {
+      "featureId": "feature-add-defensive-error-handling-around-the-async-file-parsing-calls-in-csvimportsection-tsx-so-that-if-any-individual-file-fails-to-parse-the-error-is-caught-a-per-file-error-message-is-shown-next-to-that-file-s-entry-in-the-ui-and-the-remaining-files-in-the-batch-continue-to-be-processed-and-added-to-the-preview-table",
+      "featureTitle": "Add defensive error handling around the async file-parsing calls in CSVImportSection.tsx so that if any individual file fails to parse, the error is caught, a per-file error message is shown next to that file's entry in the UI, and the remaining files in the batch continue to be processed and added to the preview table.",
+      "files": [
+        "frontend/src/components/CSVImportSection.tsx"
+      ],
+      "components": [
+        "core-infrastructure@1.0.2",
+        "shadcn-ui@1.0.0",
+        "build-template-react@1.0.0",
+        "initial-app@1.0.0",
+        "github-export-icp-cli@1.0.0"
+      ],
+      "testIds": [
+        "REQ-13"
+      ],
+      "confidence": "high"
+    }
+  ]
+}

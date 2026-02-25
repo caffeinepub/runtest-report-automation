@@ -1,0 +1,57 @@
+{
+  "kind": "implementation_plan",
+  "version": "1.0",
+  "title": "Fix file upload error in CSV import section",
+  "requirements": [
+    {
+      "id": "REQ-11",
+      "summary": "Replace CDN-based SheetJS loading with reliable npm import",
+      "acceptanceCriteria": [
+        "SheetJS is available synchronously or via a reliable import path without CDN dependency.",
+        "No runtime error is thrown when a file is selected in the upload input.",
+        "The file parsing pipeline completes without entering the error state."
+      ],
+      "file_operations": [
+        {
+          "path": "frontend/src/utils/csvParser.ts",
+          "operation": "modify",
+          "description": "Remove the lazy CDN loading logic for SheetJS (loadSheetJS function and all CDN fetch calls). Replace with a direct npm import statement (import * as XLSX from 'xlsx') at the top of the file. Update parseCSVFile to use the imported XLSX module synchronously instead of awaiting loadSheetJS(). Ensure the XLSX.read() and XLSX.utils.sheet_to_json() calls work with the bundled package."
+        }
+      ]
+    },
+    {
+      "id": "REQ-12",
+      "summary": "Fix file reading and error handling in CSV import section",
+      "acceptanceCriteria": [
+        "Uploading a CSV file results in parsed rows appearing in the preview table, not an error message.",
+        "Uploading a TSV file results in parsed rows appearing in the preview table, not an error message.",
+        "Uploading an XLSX or XLS file results in parsed rows appearing in the preview table, not an error message.",
+        "A malformed row is flagged as a per-row warning without blocking the rest of the file from being previewed.",
+        "A truly unreadable file shows a clear, user-friendly error message without crashing the component."
+      ],
+      "file_operations": [
+        {
+          "path": "frontend/src/components/CSVImportSection.tsx",
+          "operation": "modify",
+          "description": "Fix the file upload handler to properly await each file read and parse operation. Wrap the FileReader.readAsArrayBuffer() call in a Promise to ensure it completes before parsing. Update the error handling to distinguish between parse warnings (malformed rows flagged by the parser) and fatal errors (file unreadable, parser crash). Display malformed row warnings without blocking the preview table from rendering successfully parsed rows. Show fatal errors with a clear user-friendly message and ensure they don't crash the component or prevent other files from being processed."
+        }
+      ]
+    },
+    {
+      "id": "REQ-13",
+      "summary": "Add per-file error handling for batch uploads",
+      "acceptanceCriteria": [
+        "If one file in a multi-file upload fails, other files still appear in the preview table.",
+        "A per-file error label is shown for the failing file without hiding the rest of the parsed results.",
+        "The bulk upsert button remains enabled for successfully parsed rows even when one file errored."
+      ],
+      "file_operations": [
+        {
+          "path": "frontend/src/components/CSVImportSection.tsx",
+          "operation": "modify",
+          "description": "Wrap each individual file's parsing logic in a try-catch block within the multi-file upload handler. When a file fails to parse, capture the error and store it in a per-file error state (e.g., a Map or array tracking filename to error message). Update the UI to display a per-file error label next to the failed file's entry without clearing or hiding successfully parsed rows from other files. Ensure the parsedRows state accumulates results from all successfully parsed files and the bulk upsert button remains enabled as long as at least one file parsed successfully."
+        }
+      ]
+    }
+  ]
+}

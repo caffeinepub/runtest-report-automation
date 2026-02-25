@@ -1,0 +1,80 @@
+{
+  "kind": "build_request",
+  "title": "Fix file upload error in CSV import section",
+  "priority": "high",
+  "requirements": [
+    {
+      "id": "REQ-11",
+      "text": "Rewrite the SheetJS loading mechanism in csvParser.ts to use a bundled or reliably imported SheetJS package (e.g., via npm import) instead of lazy-loading from a CDN, eliminating the CDN fetch failure that causes the upload error.",
+      "target": "frontend",
+      "source": {
+        "messageIds": [
+          "msg-1"
+        ],
+        "quotes": [
+          "again i received an error",
+          "i can upload sample file"
+        ]
+      },
+      "acceptanceCriteria": [
+        "SheetJS is available synchronously or via a reliable import path without CDN dependency.",
+        "No runtime error is thrown when a file is selected in the upload input.",
+        "The file parsing pipeline completes without entering the error state."
+      ]
+    },
+    {
+      "id": "REQ-12",
+      "text": "Fix the file reading pipeline in CSVImportSection.tsx so that after a user selects one or more CSV, TSV, XLS, or XLSX files, each file is read and passed to the parser without throwing or swallowing an unhandled error. Ensure the error boundary and error-display logic in CSVImportSection.tsx correctly distinguishes between a parse warning (malformed row) and a fatal upload error, so users only see a fatal error message when the file truly cannot be processed.",
+      "target": "frontend",
+      "source": {
+        "messageIds": [
+          "msg-1"
+        ],
+        "quotes": [
+          "again i received an error"
+        ]
+      },
+      "acceptanceCriteria": [
+        "Uploading a CSV file results in parsed rows appearing in the preview table, not an error message.",
+        "Uploading a TSV file results in parsed rows appearing in the preview table, not an error message.",
+        "Uploading an XLSX or XLS file results in parsed rows appearing in the preview table, not an error message.",
+        "A malformed row is flagged as a per-row warning without blocking the rest of the file from being previewed.",
+        "A truly unreadable file shows a clear, user-friendly error message without crashing the component."
+      ]
+    },
+    {
+      "id": "REQ-13",
+      "text": "Add defensive error handling around the async file-parsing calls in CSVImportSection.tsx so that if any individual file fails to parse, the error is caught, a per-file error message is shown next to that file's entry in the UI, and the remaining files in the batch continue to be processed and added to the preview table.",
+      "target": "frontend",
+      "source": {
+        "messageIds": [
+          "msg-1"
+        ],
+        "quotes": [
+          "again i received an error",
+          "i can upload sample file"
+        ]
+      },
+      "acceptanceCriteria": [
+        "If one file in a multi-file upload fails, other files still appear in the preview table.",
+        "A per-file error label is shown for the failing file without hiding the rest of the parsed results.",
+        "The bulk upsert button remains enabled for successfully parsed rows even when one file errored."
+      ]
+    }
+  ],
+  "constraints": [
+    "Do not modify any file under frontend/src/hooks/ or frontend/src/components/ui/.",
+    "Do not alter the backend schema or any Motoko files.",
+    "Preserve the existing paste/text import mode and its CSV vs TSV auto-detection behaviour."
+  ],
+  "nonGoals": [
+    "Adding new file format support beyond CSV, TSV, XLS, and XLSX.",
+    "Changes to the manual DataEntryForm.tsx bulk entry flow.",
+    "Any backend changes.",
+    "Waggle portal API integration."
+  ],
+  "imageRequirements": {
+    "required": [],
+    "edits": []
+  }
+}
