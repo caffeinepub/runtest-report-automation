@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Table,
   TableBody,
@@ -28,10 +29,15 @@ import {
   X,
   FileText,
   CheckCircle2,
+  Package,
+  Satellite,
+  HardDrive,
+  Calendar,
+  Tag,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { UnitModel, MODEL_LABELS, ALL_MODELS, getCurrentWeekLabel, useUpsertReport } from '@/hooks/useQueries';
-import { parseCSV, parseExcelFile, type ParsedRow } from '@/utils/csvParser';
+import { parseCSV, parseExcelFile, type ParsedRow, type ParsedFileResult, type FileMetadata } from '@/utils/csvParser';
 
 interface ParsedRowWithSource extends ParsedRow {
   sourceFile: string;
@@ -43,6 +49,8 @@ interface FileEntry {
   validCount: number;
   invalidCount: number;
   error?: string;
+  metadata?: FileMetadata;
+  aggregated?: ParsedFileResult['aggregated'];
 }
 
 type ImportMode = 'paste' | 'files';
@@ -63,6 +71,89 @@ function isExcelFile(ext: string): boolean {
 
 function isSupportedFile(ext: string): boolean {
   return SUPPORTED_EXTENSIONS.includes(ext);
+}
+
+/** Summary card shown after a Waggle portal file is parsed */
+function FileSummaryCard({ entry }: { entry: FileEntry }) {
+  const { metadata, aggregated } = entry;
+  if (!metadata && !aggregated) return null;
+
+  const hasMetadata = metadata && (metadata.unitName || metadata.startDate || metadata.endDate);
+  const hasAggregated = aggregated !== undefined;
+
+  return (
+    <Card className="border-primary/20 bg-primary/5">
+      <CardHeader className="pb-2 pt-3 px-4">
+        <CardTitle className="text-xs font-semibold text-primary uppercase tracking-wide flex items-center gap-1.5">
+          <FileText className="w-3.5 h-3.5" />
+          Parsed File Summary — {entry.name}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="px-4 pb-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          {hasMetadata && (
+            <>
+              {metadata?.unitName && (
+                <div className="flex items-start gap-2">
+                  <Tag className="w-3.5 h-3.5 text-primary mt-0.5 shrink-0" />
+                  <div>
+                    <p className="text-xs text-muted-foreground">Unit Name</p>
+                    <p className="text-xs font-semibold text-foreground font-mono">{metadata.unitName}</p>
+                  </div>
+                </div>
+              )}
+              {metadata?.startDate && (
+                <div className="flex items-start gap-2">
+                  <Calendar className="w-3.5 h-3.5 text-primary mt-0.5 shrink-0" />
+                  <div>
+                    <p className="text-xs text-muted-foreground">Start Date</p>
+                    <p className="text-xs font-semibold text-foreground">{metadata.startDate}</p>
+                  </div>
+                </div>
+              )}
+              {metadata?.endDate && (
+                <div className="flex items-start gap-2">
+                  <Calendar className="w-3.5 h-3.5 text-amber-500 mt-0.5 shrink-0" />
+                  <div>
+                    <p className="text-xs text-muted-foreground">End Date</p>
+                    <p className="text-xs font-semibold text-foreground">{metadata.endDate}</p>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+          {hasAggregated && (
+            <>
+              <div className="flex items-start gap-2">
+                <Package className="w-3.5 h-3.5 text-blue-400 mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-xs text-muted-foreground">Total Packets</p>
+                  <p className="text-xs font-semibold text-foreground font-mono">{aggregated!.totalPackets.toLocaleString()}</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-2">
+                <HardDrive className="w-3.5 h-3.5 text-orange-400 mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-xs text-muted-foreground">Stored Packets</p>
+                  <p className="text-xs font-semibold text-foreground font-mono">{aggregated!.storedPackets.toLocaleString()}</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-2">
+                <Satellite className="w-3.5 h-3.5 text-green-400 mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-xs text-muted-foreground">GPS Valid Fix</p>
+                  <p className="text-xs font-semibold text-foreground font-mono">{aggregated!.validGpsPackets.toLocaleString()}</p>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+        {!hasMetadata && !hasAggregated && (
+          <p className="text-xs text-muted-foreground italic">No summary data extracted from this file.</p>
+        )}
+      </CardContent>
+    </Card>
+  );
 }
 
 export function CSVImportSection() {
@@ -93,12 +184,12 @@ export function CSVImportSection() {
       return;
     }
     try {
-      const rows = parseCSV(csvText);
-      if (rows.length === 0) {
+      const result = parseCSV(csvText);
+      if (result.rows.length === 0) {
         toast.error('No valid rows found in the pasted data');
         return;
       }
-      const rowsWithSource: ParsedRowWithSource[] = rows.map(r => ({ ...r, sourceFile: 'Pasted data' }));
+      const rowsWithSource: ParsedRowWithSource[] = result.rows.map(r => ({ ...r, sourceFile: 'Pasted data' }));
       setParsedRows(rowsWithSource);
       setUploadedFiles([]);
     } catch (err) {
@@ -124,13 +215,13 @@ export function CSVImportSection() {
       }
 
       try {
-        let rows: ParsedRow[];
+        let result: ParsedFileResult;
 
         if (isExcelFile(ext)) {
-          rows = await parseExcelFile(file);
+          result = await parseExcelFile(file);
         } else {
           // CSV or TSV — read as text using FileReader wrapped in a Promise
-          rows = await new Promise<ParsedRow[]>((resolve, reject) => {
+          result = await new Promise<ParsedFileResult>((resolve, reject) => {
             const reader = new FileReader();
             reader.onload = () => {
               try {
@@ -147,6 +238,7 @@ export function CSVImportSection() {
           });
         }
 
+        const rows = result.rows;
         const rowsWithSource: ParsedRowWithSource[] = rows.map(r => ({ ...r, sourceFile: file.name }));
         allRows.push(...rowsWithSource);
         fileEntries.push({
@@ -154,10 +246,11 @@ export function CSVImportSection() {
           rowCount: rows.length,
           validCount: rows.filter(r => !r.error).length,
           invalidCount: rows.filter(r => !!r.error).length,
+          metadata: result.metadata,
+          aggregated: result.aggregated,
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Unknown error';
-        // Record per-file error but continue processing other files
         fileEntries.push({
           name: file.name,
           rowCount: 0,
@@ -171,13 +264,11 @@ export function CSVImportSection() {
 
     setIsProcessingFiles(false);
 
-    // Reset file input so the same file can be re-selected after fixing
     if (fileInputRef.current) fileInputRef.current.value = '';
 
     const failedEntries = fileEntries.filter(f => f.error);
     const successEntries = fileEntries.filter(f => !f.error);
 
-    // Always update uploadedFiles so per-file errors are shown
     if (fileEntries.length > 0) {
       setUploadedFiles(fileEntries);
     }
@@ -186,7 +277,6 @@ export function CSVImportSection() {
       if (failedEntries.length === 0) {
         toast.error('No data rows found in the uploaded files. Please check the file contents.');
       }
-      // Individual file errors already shown via toast above
       return;
     }
 
@@ -219,7 +309,6 @@ export function CSVImportSection() {
     const files = Array.from(e.dataTransfer.files);
     if (files.length === 0) return;
 
-    // Filter to supported files and warn about unsupported ones
     const supported: File[] = [];
     const unsupported: string[] = [];
 
@@ -298,6 +387,9 @@ export function CSVImportSection() {
     handleReset();
   };
 
+  // Determine if any uploaded file has a summary to show
+  const filesWithSummary = uploadedFiles.filter(f => !f.error && (f.metadata || f.aggregated));
+
   return (
     <Collapsible open={isOpen} onOpenChange={setIsOpen}>
       {/* Section Toggle Header */}
@@ -346,7 +438,15 @@ export function CSVImportSection() {
               </CollapsibleTrigger>
               <CollapsibleContent>
                 <div className="mt-2 p-3 bg-primary/5 border border-primary/15 rounded-md space-y-2.5 text-xs text-muted-foreground">
-                  <p className="font-medium text-foreground text-xs">Expected column order (4 columns):</p>
+                  <p className="font-medium text-foreground text-xs">Waggle portal export format (auto-detected):</p>
+                  <ul className="list-disc list-inside space-y-1 text-xs">
+                    <li>Export the report from the Waggle portal — the file includes a <strong className="text-foreground">Gateway Details</strong> header block</li>
+                    <li>Unit name, start date, and end date are extracted automatically from the header block</li>
+                    <li>Packet counts are computed from the <strong className="text-foreground">PktState</strong> column (Normal = total, Stored = stored)</li>
+                    <li>GPS valid fix count is computed from the <strong className="text-foreground">GPS Status</strong> column (Valid rows)</li>
+                    <li>One aggregated record per file is created using the gateway name as the unit ID</li>
+                  </ul>
+                  <p className="font-medium text-foreground text-xs mt-2">Legacy CSV format (4 columns):</p>
                   <div className="font-mono bg-secondary/60 rounded px-3 py-2 text-xs border border-border">
                     <span className="text-primary">Unit ID</span>
                     <span className="text-muted-foreground mx-1">,</span>
@@ -355,12 +455,6 @@ export function CSVImportSection() {
                     <span className="text-foreground">Stored Packets</span>
                     <span className="text-muted-foreground mx-1">,</span>
                     <span className="text-foreground">Valid GPS Fix Packets</span>
-                  </div>
-                  <p className="font-medium text-foreground text-xs">Example rows:</p>
-                  <div className="font-mono bg-secondary/60 rounded px-3 py-2 text-xs border border-border space-y-0.5">
-                    <div className="text-muted-foreground">UNIT-001, 1200, 980, 850</div>
-                    <div className="text-muted-foreground">UNIT-002, 1150, 900, 780</div>
-                    <div className="text-muted-foreground">UNIT-003, 1300, 1100, 920</div>
                   </div>
                   <p className="font-medium text-foreground text-xs">Supported file formats:</p>
                   <div className="flex flex-wrap gap-1.5">
@@ -371,12 +465,8 @@ export function CSVImportSection() {
                     ))}
                   </div>
                   <ul className="list-disc list-inside space-y-1 text-xs">
-                    <li>Export the report from the Waggle portal report view (N13_Senthil, N13_Sanjeevi, etc.)</li>
-                    <li>For bulk upload: save one file per unit group, then select all files at once</li>
-                    <li>CSV and TSV (comma and tab delimiters) are auto-detected</li>
-                    <li>Excel files (.xls, .xlsx) — first sheet is used automatically</li>
-                    <li>Header rows are automatically detected and skipped</li>
-                    <li>Select the correct <strong className="text-foreground">Unit Model</strong> and <strong className="text-foreground">Week</strong> before importing — these apply to all rows</li>
+                    <li>Select the correct <strong className="text-foreground">Unit Model</strong> and <strong className="text-foreground">Week</strong> before importing</li>
+                    <li>For bulk upload: select all files at once — each file creates one record</li>
                   </ul>
                 </div>
               </CollapsibleContent>
@@ -461,11 +551,11 @@ export function CSVImportSection() {
                 {!parsedRows && (
                   <Button
                     onClick={handlePaste}
-                    disabled={!csvText.trim()}
-                    className="bg-primary text-primary-foreground hover:bg-primary/90 gap-2"
+                    variant="outline"
+                    size="sm"
+                    className="border-primary/30 text-primary hover:bg-primary/10"
                   >
-                    <ClipboardPaste className="w-4 h-4" />
-                    Parse &amp; Preview
+                    Parse Data
                   </Button>
                 )}
               </div>
@@ -482,192 +572,211 @@ export function CSVImportSection() {
                   className="hidden"
                   onChange={handleFilesSelected}
                 />
+
+                {/* Drop Zone */}
                 <div
                   onClick={handleDropZoneClick}
                   onDragOver={e => e.preventDefault()}
                   onDrop={handleDrop}
-                  className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
+                  className={`relative border-2 border-dashed rounded-lg p-8 text-center transition-colors cursor-pointer ${
                     isProcessingFiles
                       ? 'border-primary/40 bg-primary/5 cursor-wait'
-                      : 'border-border hover:border-primary/50 hover:bg-primary/5 cursor-pointer'
+                      : 'border-primary/30 hover:border-primary/60 hover:bg-primary/5'
                   }`}
                 >
                   {isProcessingFiles ? (
-                    <div className="flex flex-col items-center gap-3">
+                    <div className="flex flex-col items-center gap-2">
                       <Loader2 className="w-8 h-8 text-primary animate-spin" />
-                      <p className="text-sm font-medium text-foreground">Processing files…</p>
-                      <p className="text-xs text-muted-foreground">Loading Excel parser and reading data</p>
+                      <p className="text-sm text-muted-foreground">Processing files…</p>
                     </div>
                   ) : (
-                    <div className="flex flex-col items-center gap-3">
+                    <div className="flex flex-col items-center gap-2">
                       <div className="w-12 h-12 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center">
                         <Upload className="w-5 h-5 text-primary" />
                       </div>
-                      <div>
-                        <p className="text-sm font-medium text-foreground">Drop files here or click to browse</p>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          CSV, TSV, XLS, XLSX — multiple files supported
-                        </p>
-                      </div>
+                      <p className="text-sm font-medium text-foreground">Drop files here or click to browse</p>
+                      <p className="text-xs text-muted-foreground">CSV, TSV, XLS, XLSX — multiple files supported</p>
                     </div>
                   )}
                 </div>
 
-                {/* Per-file error list (shown when some files failed but others succeeded or all failed) */}
-                {uploadedFiles.length > 0 && uploadedFiles.some(f => f.error) && (
-                  <div className="space-y-1.5">
-                    {uploadedFiles.filter(f => f.error).map(f => (
-                      <Alert key={f.name} variant="destructive" className="py-2 px-3">
-                        <AlertCircle className="w-3.5 h-3.5" />
-                        <AlertDescription className="text-xs">
-                          <span className="font-medium">{f.name}</span>: {f.error}
-                        </AlertDescription>
-                      </Alert>
-                    ))}
-                  </div>
-                )}
+                {/* Per-file error alerts */}
+                {uploadedFiles.filter(f => f.error).map(f => (
+                  <Alert key={f.name} variant="destructive" className="py-2">
+                    <AlertCircle className="w-4 h-4" />
+                    <AlertDescription className="text-xs">
+                      <span className="font-medium">{f.name}:</span> {f.error}
+                    </AlertDescription>
+                  </Alert>
+                ))}
               </div>
             )}
 
-            {/* ── Preview Table ── */}
+            {/* ── File Summary Cards (shown after successful parse) ── */}
+            {importMode === 'files' && parsedRows && filesWithSummary.length > 0 && (
+              <div className="space-y-3">
+                {filesWithSummary.map(entry => (
+                  <FileSummaryCard key={entry.name} entry={entry} />
+                ))}
+              </div>
+            )}
+
+            {/* ── Parsed Preview Table ── */}
             {parsedRows && parsedRows.length > 0 && (
               <div className="space-y-3">
-                {/* Summary bar */}
-                <div className="flex items-center justify-between flex-wrap gap-2">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <Badge className="bg-primary/15 text-primary border-primary/25 text-xs">
-                      {parsedRows.length} row{parsedRows.length !== 1 ? 's' : ''} parsed
-                    </Badge>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <p className="text-xs font-medium text-foreground">
+                      Preview — {parsedRows.length} row{parsedRows.length !== 1 ? 's' : ''} parsed
+                    </p>
                     {validRows.length > 0 && (
-                      <Badge className="bg-green-500/15 text-green-600 dark:text-green-400 border-green-500/25 text-xs">
+                      <Badge variant="outline" className="text-xs border-green-500/40 text-green-400 bg-green-500/10">
                         <CheckCircle2 className="w-3 h-3 mr-1" />
                         {validRows.length} valid
                       </Badge>
                     )}
                     {invalidRows.length > 0 && (
-                      <Badge className="bg-destructive/15 text-destructive border-destructive/25 text-xs">
+                      <Badge variant="outline" className="text-xs border-destructive/40 text-destructive bg-destructive/10">
                         <AlertCircle className="w-3 h-3 mr-1" />
-                        {invalidRows.length} with warnings
+                        {invalidRows.length} invalid
                       </Badge>
                     )}
-                    {/* Per-file error badges in preview mode */}
-                    {uploadedFiles.filter(f => f.error).map(f => (
-                      <Badge key={f.name} variant="destructive" className="text-xs gap-1">
-                        <AlertCircle className="w-3 h-3" />
-                        {f.name} failed
-                      </Badge>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleReset}
+                    className="text-xs text-muted-foreground hover:text-foreground h-7 px-2"
+                  >
+                    <X className="w-3.5 h-3.5 mr-1" />
+                    Clear
+                  </Button>
+                </div>
+
+                {/* File summary badges */}
+                {uploadedFiles.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {uploadedFiles.map(f => (
+                      <div
+                        key={f.name}
+                        className={`flex items-center gap-1.5 px-2 py-1 rounded-md border text-xs ${
+                          f.error
+                            ? 'border-destructive/30 bg-destructive/10 text-destructive'
+                            : 'border-border bg-secondary/60 text-muted-foreground'
+                        }`}
+                      >
+                        {f.error ? (
+                          <AlertCircle className="w-3 h-3 shrink-0" />
+                        ) : (
+                          <FileText className="w-3 h-3 shrink-0" />
+                        )}
+                        <span className="font-mono truncate max-w-[160px]">{f.name}</span>
+                        {!f.error && (
+                          <Badge variant="outline" className="text-xs h-4 px-1 border-border">
+                            {f.rowCount}
+                          </Badge>
+                        )}
+                      </div>
                     ))}
                   </div>
-                  <button
-                    onClick={handleReset}
-                    className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                    Clear
-                  </button>
-                </div>
+                )}
 
-                {/* Table */}
-                <div className="border border-border rounded-md overflow-hidden">
-                  <div className="overflow-x-auto max-h-64 overflow-y-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow className="bg-secondary/60">
-                          <TableHead className="text-xs py-2 px-3 w-8">#</TableHead>
-                          <TableHead className="text-xs py-2 px-3">Unit ID</TableHead>
-                          <TableHead className="text-xs py-2 px-3 text-right">Total Pkts</TableHead>
-                          <TableHead className="text-xs py-2 px-3 text-right">Stored Pkts</TableHead>
-                          <TableHead className="text-xs py-2 px-3 text-right">Valid GPS</TableHead>
-                          <TableHead className="text-xs py-2 px-3">Source</TableHead>
-                          <TableHead className="text-xs py-2 px-3">Status</TableHead>
+                <div className="rounded-md border border-border overflow-hidden">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-secondary/60">
+                        <TableHead className="text-xs h-8">Unit ID</TableHead>
+                        <TableHead className="text-xs h-8 text-right">Total Pkts</TableHead>
+                        <TableHead className="text-xs h-8 text-right">Stored Pkts</TableHead>
+                        <TableHead className="text-xs h-8 text-right">Valid GPS</TableHead>
+                        {importMode === 'files' && uploadedFiles.length > 1 && (
+                          <TableHead className="text-xs h-8">Source</TableHead>
+                        )}
+                        <TableHead className="text-xs h-8">Status</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {parsedRows.map((row, idx) => (
+                        <TableRow
+                          key={idx}
+                          className={row.error ? 'bg-destructive/5' : ''}
+                        >
+                          <TableCell className="text-xs font-mono py-1.5">{row.unitId || '—'}</TableCell>
+                          <TableCell className="text-xs text-right py-1.5 font-mono">{row.totalPkts || '—'}</TableCell>
+                          <TableCell className="text-xs text-right py-1.5 font-mono">{row.storedPkts || '—'}</TableCell>
+                          <TableCell className="text-xs text-right py-1.5 font-mono">{row.validGpsFixPkts || '—'}</TableCell>
+                          {importMode === 'files' && uploadedFiles.length > 1 && (
+                            <TableCell className="text-xs py-1.5 text-muted-foreground truncate max-w-[120px]">
+                              {row.sourceFile}
+                            </TableCell>
+                          )}
+                          <TableCell className="py-1.5">
+                            {row.error ? (
+                              <Badge variant="destructive" className="text-xs h-5 px-1.5">
+                                <AlertCircle className="w-3 h-3 mr-1" />
+                                {row.error}
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline" className="text-xs h-5 px-1.5 border-green-500/40 text-green-400 bg-green-500/10">
+                                <CheckCircle2 className="w-3 h-3 mr-1" />
+                                OK
+                              </Badge>
+                            )}
+                          </TableCell>
                         </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {parsedRows.map((row, idx) => (
-                          <TableRow
-                            key={idx}
-                            className={row.error ? 'bg-destructive/5' : ''}
-                          >
-                            <TableCell className="text-xs py-1.5 px-3 text-muted-foreground">{idx + 1}</TableCell>
-                            <TableCell className="text-xs py-1.5 px-3 font-mono font-medium">{row.unitId || '—'}</TableCell>
-                            <TableCell className="text-xs py-1.5 px-3 text-right font-mono">{row.totalPkts || '—'}</TableCell>
-                            <TableCell className="text-xs py-1.5 px-3 text-right font-mono">{row.storedPkts || '—'}</TableCell>
-                            <TableCell className="text-xs py-1.5 px-3 text-right font-mono">{row.validGpsFixPkts || '—'}</TableCell>
-                            <TableCell className="text-xs py-1.5 px-3 text-muted-foreground max-w-[120px] truncate">
-                              <span title={row.sourceFile}>
-                                <FileText className="w-3 h-3 inline mr-1 opacity-60" />
-                                {row.sourceFile}
-                              </span>
-                            </TableCell>
-                            <TableCell className="text-xs py-1.5 px-3">
-                              {row.error ? (
-                                <span className="flex items-center gap-1 text-destructive">
-                                  <AlertCircle className="w-3 h-3 flex-shrink-0" />
-                                  <span className="truncate max-w-[160px]" title={row.error}>{row.error}</span>
-                                </span>
-                              ) : (
-                                <span className="flex items-center gap-1 text-green-600 dark:text-green-400">
-                                  <CheckCircle2 className="w-3 h-3" />
-                                  OK
-                                </span>
-                              )}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
+                      ))}
+                    </TableBody>
+                  </Table>
                 </div>
 
-                {/* Invalid rows warning */}
-                {invalidRows.length > 0 && validRows.length > 0 && (
-                  <Alert className="border-amber-500/30 bg-amber-500/5 py-2">
-                    <AlertCircle className="w-3.5 h-3.5 text-amber-500" />
-                    <AlertDescription className="text-xs text-amber-700 dark:text-amber-400">
-                      {invalidRows.length} row{invalidRows.length !== 1 ? 's' : ''} have validation warnings and will be skipped during import. Only the {validRows.length} valid row{validRows.length !== 1 ? 's' : ''} will be imported.
-                    </AlertDescription>
-                  </Alert>
-                )}
-
-                {invalidRows.length > 0 && validRows.length === 0 && (
+                {/* Invalid row warnings */}
+                {invalidRows.length > 0 && (
                   <Alert variant="destructive" className="py-2">
-                    <AlertCircle className="w-3.5 h-3.5" />
+                    <AlertCircle className="w-4 h-4" />
                     <AlertDescription className="text-xs">
-                      All rows have validation errors. Please fix the data and try again.
+                      {invalidRows.length} row{invalidRows.length !== 1 ? 's' : ''} have validation errors and will be skipped during import.
+                      {validRows.length === 0 && ' No valid rows to import.'}
                     </AlertDescription>
                   </Alert>
                 )}
 
-                {/* Import action */}
+                {/* Import Button */}
                 {validRows.length > 0 && (
                   <div className="flex items-center gap-3 pt-1">
                     <Button
                       onClick={handleConfirmImport}
                       disabled={isImporting}
-                      className="bg-primary text-primary-foreground hover:bg-primary/90 gap-2"
+                      className="bg-primary text-primary-foreground hover:bg-primary/90"
+                      size="sm"
                     >
                       {isImporting ? (
                         <>
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          Importing {validRows.length} record{validRows.length !== 1 ? 's' : ''}…
+                          <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />
+                          Importing…
                         </>
                       ) : (
                         <>
-                          <Upload className="w-4 h-4" />
-                          Import {validRows.length} record{validRows.length !== 1 ? 's' : ''} → {MODEL_LABELS[selectedModel]} / {weekLabel}
+                          <Upload className="w-3.5 h-3.5 mr-2" />
+                          Import {validRows.length} Record{validRows.length !== 1 ? 's' : ''}
                         </>
                       )}
                     </Button>
-                    <button
-                      onClick={handleReset}
-                      disabled={isImporting}
-                      className="text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
-                    >
-                      Cancel
-                    </button>
+                    <p className="text-xs text-muted-foreground">
+                      Will be saved as <span className="font-medium text-foreground">{MODEL_LABELS[selectedModel]}</span> for week <span className="font-mono text-foreground">{weekLabel}</span>
+                    </p>
                   </div>
                 )}
               </div>
+            )}
+
+            {/* Empty state after parse attempt with no valid rows */}
+            {parsedRows && parsedRows.length === 0 && (
+              <Alert variant="destructive" className="py-2">
+                <AlertCircle className="w-4 h-4" />
+                <AlertDescription className="text-xs">
+                  No data rows were found. Please check that the file contains valid data rows.
+                </AlertDescription>
+              </Alert>
             )}
 
           </div>

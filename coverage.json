@@ -1,18 +1,18 @@
 {
   "kind": "coverage_report",
   "version": "1.0",
-  "generatedAt": "2026-02-25T13:44:03.545Z",
+  "generatedAt": "2026-02-26T05:05:18.813Z",
   "sources": {
     "buildRequest": true,
     "implementationPlan": true
   },
   "requirements": {
-    "total": 3,
-    "implemented": 3,
+    "total": 5,
+    "implemented": 5,
     "items": [
       {
-        "id": "REQ-11",
-        "summary": "Rewrite the SheetJS loading mechanism in csvParser.ts to use a bundled or reliably imported SheetJS package (e.g., via npm import) instead of lazy-loading from a CDN, eliminating the CDN fetch failure that causes the upload error.",
+        "id": "REQ-1",
+        "summary": "Update the CSV/Excel parser in csvParser.ts to correctly detect and parse the file format shown in the uploaded screenshots. The file has a metadata header block in rows 1–7 before the data header row (row 8). The parser must stop throwing 'No data rows found' and instead correctly identify row 8 as the header row (blue highlighted row) and rows 9+ as data rows.",
         "status": "implemented",
         "plannedFiles": [
           "frontend/src/utils/csvParser.ts"
@@ -22,19 +22,43 @@
         ]
       },
       {
-        "id": "REQ-12",
-        "summary": "Fix the file reading pipeline in CSVImportSection.tsx so that after a user selects one or more CSV, TSV, XLS, or XLSX files, each file is read and passed to the parser without throwing or swallowing an unhandled error. Ensure the error boundary and error-display logic in CSVImportSection.tsx correctly distinguishes between a parse warning (malformed row) and a fatal upload error, so users only see a fatal error message when the file truly cannot be processed.",
+        "id": "REQ-2",
+        "summary": "Extract gateway details from the metadata rows (rows 1–6) of the uploaded file and use them to auto-populate form fields or report data. Specifically: parse the Gateway name (row 4, e.g. 'Gateway : N13-5_D20_Lite') as the unit name, parse the Start Date from row 5 ('Start Date & Time : 8 Feb'26 12:00 AM'), and parse the End Date / current date from row 6 ('End Date & Time : 23 Feb'26 12:00 AM').",
         "status": "implemented",
         "plannedFiles": [
+          "frontend/src/utils/csvParser.ts",
           "frontend/src/components/CSVImportSection.tsx"
         ],
         "matchedFiles": [
+          "frontend/src/utils/csvParser.ts",
           "frontend/src/components/CSVImportSection.tsx"
         ]
       },
       {
-        "id": "REQ-13",
-        "summary": "Add defensive error handling around the async file-parsing calls in CSVImportSection.tsx so that if any individual file fails to parse, the error is caught, a per-file error message is shown next to that file's entry in the UI, and the remaining files in the batch continue to be processed and added to the preview table.",
+        "id": "REQ-3",
+        "summary": "Update the parser to compute total packet count and stored packet count from the data rows. The column header 'PktState' is located in spreadsheet column Y (25th column, zero-indexed column 24). Count all data rows where PktState is 'Normal' for total packets, and count rows where PktState is 'Stored' for stored packet count. Map these counts to the totalPackets and storedPackets fields of the ParsedRow output.",
+        "status": "implemented",
+        "plannedFiles": [
+          "frontend/src/utils/csvParser.ts"
+        ],
+        "matchedFiles": [
+          "frontend/src/utils/csvParser.ts"
+        ]
+      },
+      {
+        "id": "REQ-4",
+        "summary": "Update the parser to compute GPS valid fix count from the data rows. The column header 'GPS Status' is located in spreadsheet column O (15th column, zero-indexed column 14). Count all data rows where GPS Status is 'Valid' (case-insensitive) as GPS valid fix packets. Map this count to the validGpsPackets field of the ParsedRow output.",
+        "status": "implemented",
+        "plannedFiles": [
+          "frontend/src/utils/csvParser.ts"
+        ],
+        "matchedFiles": [
+          "frontend/src/utils/csvParser.ts"
+        ]
+      },
+      {
+        "id": "REQ-5",
+        "summary": "After successfully parsing the file, display a summary preview to the user showing the extracted gateway details (unit name, start date, end date) and computed statistics (total packet count, stored packet count, GPS valid fix count) before the user submits the import. This replaces or augments the existing per-file parsed row preview in CSVImportSection.tsx.",
         "status": "implemented",
         "plannedFiles": [
           "frontend/src/components/CSVImportSection.tsx"
@@ -47,6 +71,8 @@
   },
   "changedFiles": [
     "build-request.json",
+    "build-template/README.md",
+    "caffeine.lock.json",
     "feature_evidence.json",
     "frontend-file-summaries.txt",
     "frontend-implementation-plan.json",

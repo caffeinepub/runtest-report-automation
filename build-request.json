@@ -1,77 +1,113 @@
 {
   "kind": "build_request",
-  "title": "Fix file upload error in CSV import section",
+  "title": "Fix CSV/Excel parser to extract gateway details and packet stats from uploaded file format",
+  "projectName": "RunTest GPS Report",
   "priority": "high",
   "requirements": [
     {
-      "id": "REQ-11",
-      "text": "Rewrite the SheetJS loading mechanism in csvParser.ts to use a bundled or reliably imported SheetJS package (e.g., via npm import) instead of lazy-loading from a CDN, eliminating the CDN fetch failure that causes the upload error.",
+      "id": "REQ-1",
+      "text": "Update the CSV/Excel parser in csvParser.ts to correctly detect and parse the file format shown in the uploaded screenshots. The file has a metadata header block in rows 1–7 before the data header row (row 8). The parser must stop throwing 'No data rows found' and instead correctly identify row 8 as the header row (blue highlighted row) and rows 9+ as data rows.",
       "target": "frontend",
       "source": {
         "messageIds": [
           "msg-1"
         ],
         "quotes": [
-          "again i received an error",
-          "i can upload sample file"
+          "No data rows found in the uploaded files. Please check the file contents.",
+          "Uploading file will be in this format"
         ]
       },
       "acceptanceCriteria": [
-        "SheetJS is available synchronously or via a reliable import path without CDN dependency.",
-        "No runtime error is thrown when a file is selected in the upload input.",
-        "The file parsing pipeline completes without entering the error state."
+        "Uploading the Excel file no longer shows 'No data rows found' error",
+        "Parser correctly skips metadata rows 1–7 (Customer Name, Group, Gateway, Start Date, End Date) and identifies row 8 as the column header row",
+        "Data rows starting from row 9 are successfully parsed"
       ]
     },
     {
-      "id": "REQ-12",
-      "text": "Fix the file reading pipeline in CSVImportSection.tsx so that after a user selects one or more CSV, TSV, XLS, or XLSX files, each file is read and passed to the parser without throwing or swallowing an unhandled error. Ensure the error boundary and error-display logic in CSVImportSection.tsx correctly distinguishes between a parse warning (malformed row) and a fatal upload error, so users only see a fatal error message when the file truly cannot be processed.",
+      "id": "REQ-2",
+      "text": "Extract gateway details from the metadata rows (rows 1–6) of the uploaded file and use them to auto-populate form fields or report data. Specifically: parse the Gateway name (row 4, e.g. 'Gateway : N13-5_D20_Lite') as the unit name, parse the Start Date from row 5 ('Start Date & Time : 8 Feb'26 12:00 AM'), and parse the End Date / current date from row 6 ('End Date & Time : 23 Feb'26 12:00 AM').",
       "target": "frontend",
       "source": {
         "messageIds": [
           "msg-1"
         ],
         "quotes": [
-          "again i received an error"
+          "From the file you can get the gateway details like unit name, start date and current date"
         ]
       },
       "acceptanceCriteria": [
-        "Uploading a CSV file results in parsed rows appearing in the preview table, not an error message.",
-        "Uploading a TSV file results in parsed rows appearing in the preview table, not an error message.",
-        "Uploading an XLSX or XLS file results in parsed rows appearing in the preview table, not an error message.",
-        "A malformed row is flagged as a per-row warning without blocking the rest of the file from being previewed.",
-        "A truly unreadable file shows a clear, user-friendly error message without crashing the component."
+        "Unit name is extracted from the 'Gateway :' metadata row and populated in the import form or report entry",
+        "Start date is extracted from the 'Start Date & Time :' metadata row",
+        "End date (current date) is extracted from the 'End Date & Time :' metadata row",
+        "Extracted values are shown to the user before submission (e.g. in the parsed preview)"
       ]
     },
     {
-      "id": "REQ-13",
-      "text": "Add defensive error handling around the async file-parsing calls in CSVImportSection.tsx so that if any individual file fails to parse, the error is caught, a per-file error message is shown next to that file's entry in the UI, and the remaining files in the batch continue to be processed and added to the preview table.",
+      "id": "REQ-3",
+      "text": "Update the parser to compute total packet count and stored packet count from the data rows. The column header 'PktState' is located in spreadsheet column Y (25th column, zero-indexed column 24). Count all data rows where PktState is 'Normal' for total packets, and count rows where PktState is 'Stored' for stored packet count. Map these counts to the totalPackets and storedPackets fields of the ParsedRow output.",
       "target": "frontend",
       "source": {
         "messageIds": [
           "msg-1"
         ],
         "quotes": [
-          "again i received an error",
-          "i can upload sample file"
+          "For Total packets and stored packet count you can fetch the data from 'PktState' in 'Y' column Normal & Stored had been mentioned."
         ]
       },
       "acceptanceCriteria": [
-        "If one file in a multi-file upload fails, other files still appear in the preview table.",
-        "A per-file error label is shown for the failing file without hiding the rest of the parsed results.",
-        "The bulk upsert button remains enabled for successfully parsed rows even when one file errored."
+        "Parser finds the 'PktState' column by header name (not hardcoded index) in the header row",
+        "Rows with PktState value 'Normal' are counted as total/normal packets",
+        "Rows with PktState value 'Stored' are counted as stored packets",
+        "Both counts are correctly reflected in the imported report entry"
+      ]
+    },
+    {
+      "id": "REQ-4",
+      "text": "Update the parser to compute GPS valid fix count from the data rows. The column header 'GPS Status' is located in spreadsheet column O (15th column, zero-indexed column 14). Count all data rows where GPS Status is 'Valid' (case-insensitive) as GPS valid fix packets. Map this count to the validGpsPackets field of the ParsedRow output.",
+      "target": "frontend",
+      "source": {
+        "messageIds": [
+          "msg-1"
+        ],
+        "quotes": [
+          "For GPS valid fix can be fetched from 'GPS Status' from column 'O'"
+        ]
+      },
+      "acceptanceCriteria": [
+        "Parser finds the 'GPS Status' column by header name in the header row",
+        "Rows where GPS Status equals 'Valid' (case-insensitive) are counted as GPS valid fix packets",
+        "Rows where GPS Status is 'Invalid' or other values are not counted as valid GPS fixes",
+        "The valid GPS fix count is correctly reflected in the imported report entry"
+      ]
+    },
+    {
+      "id": "REQ-5",
+      "text": "After successfully parsing the file, display a summary preview to the user showing the extracted gateway details (unit name, start date, end date) and computed statistics (total packet count, stored packet count, GPS valid fix count) before the user submits the import. This replaces or augments the existing per-file parsed row preview in CSVImportSection.tsx.",
+      "target": "frontend",
+      "source": {
+        "messageIds": [
+          "msg-1"
+        ],
+        "quotes": [
+          "Uploading file will be in this format and i had attached the error in dashboard tool and the screenshot of the file i had opened and sent"
+        ]
+      },
+      "acceptanceCriteria": [
+        "After a successful file parse, a preview card is shown with unit name, start date, end date, total packets, stored packets, and GPS valid fix count",
+        "The preview appears before the user clicks submit/import",
+        "If parsing fails or any key field is missing, a clear error message is shown instead"
       ]
     }
   ],
   "constraints": [
-    "Do not modify any file under frontend/src/hooks/ or frontend/src/components/ui/.",
-    "Do not alter the backend schema or any Motoko files.",
-    "Preserve the existing paste/text import mode and its CSV vs TSV auto-detection behaviour."
+    "Column lookups for 'PktState' and 'GPS Status' must use header name matching, not hardcoded column index, to be robust to column reordering",
+    "Metadata row parsing must handle the 'Key : Value' text format (e.g. 'Gateway : N13-5_D20_Lite')",
+    "Do not break existing CSV/TSV parsing functionality"
   ],
   "nonGoals": [
-    "Adding new file format support beyond CSV, TSV, XLS, and XLSX.",
-    "Changes to the manual DataEntryForm.tsx bulk entry flow.",
-    "Any backend changes.",
-    "Waggle portal API integration."
+    "Changes to the backend data model or Motoko actor",
+    "Support for file formats other than CSV, TSV, XLS, XLSX",
+    "Automatic GPS coordinate parsing or map display"
   ],
   "imageRequirements": {
     "required": [],
