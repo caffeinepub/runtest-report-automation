@@ -2,81 +2,8 @@
   "kind": "feature_evidence_report",
   "features": [
     {
-      "featureId": "feature-update-the-csv-excel-parser-in-csvparser-ts-to-correctly-detect-and-parse-the-file-format-shown-in-the-uploaded-screenshots-the-file-has-a-metadata-header-block-in-rows-1-7-before-the-data-header-row-row-8-the-parser-must-stop-throwing-no-data-rows-found-and-instead-correctly-identify-row-8-as-the-header-row-blue-highlighted-row-and-rows-9-as-data-rows",
-      "featureTitle": "Update the CSV/Excel parser in csvParser.ts to correctly detect and parse the file format shown in the uploaded screenshots. The file has a metadata header block in rows 1–7 before the data header row (row 8). The parser must stop throwing 'No data rows found' and instead correctly identify row 8 as the header row (blue highlighted row) and rows 9+ as data rows.",
-      "files": [
-        "frontend/src/utils/csvParser.ts"
-      ],
-      "components": [
-        "core-infrastructure@1.0.2",
-        "shadcn-ui@1.0.0",
-        "build-template-react@1.0.0",
-        "initial-app@1.0.0",
-        "github-export-icp-cli@1.0.0"
-      ],
-      "testIds": [
-        "REQ-1"
-      ],
-      "confidence": "high"
-    },
-    {
-      "featureId": "feature-extract-gateway-details-from-the-metadata-rows-rows-1-6-of-the-uploaded-file-and-use-them-to-auto-populate-form-fields-or-report-data-specifically-parse-the-gateway-name-row-4-e-g-gateway-n13-5-d20-lite-as-the-unit-name-parse-the-start-date-from-row-5-start-date-time-8-feb-26-12-00-am-and-parse-the-end-date-current-date-from-row-6-end-date-time-23-feb-26-12-00-am",
-      "featureTitle": "Extract gateway details from the metadata rows (rows 1–6) of the uploaded file and use them to auto-populate form fields or report data. Specifically: parse the Gateway name (row 4, e.g. 'Gateway : N13-5_D20_Lite') as the unit name, parse the Start Date from row 5 ('Start Date & Time : 8 Feb'26 12:00 AM'), and parse the End Date / current date from row 6 ('End Date & Time : 23 Feb'26 12:00 AM').",
-      "files": [
-        "frontend/src/components/CSVImportSection.tsx",
-        "frontend/src/utils/csvParser.ts"
-      ],
-      "components": [
-        "core-infrastructure@1.0.2",
-        "shadcn-ui@1.0.0",
-        "build-template-react@1.0.0",
-        "initial-app@1.0.0",
-        "github-export-icp-cli@1.0.0"
-      ],
-      "testIds": [
-        "REQ-2"
-      ],
-      "confidence": "high"
-    },
-    {
-      "featureId": "feature-update-the-parser-to-compute-total-packet-count-and-stored-packet-count-from-the-data-rows-the-column-header-pktstate-is-located-in-spreadsheet-column-y-25th-column-zero-indexed-column-24-count-all-data-rows-where-pktstate-is-normal-for-total-packets-and-count-rows-where-pktstate-is-stored-for-stored-packet-count-map-these-counts-to-the-totalpackets-and-storedpackets-fields-of-the-parsedrow-output",
-      "featureTitle": "Update the parser to compute total packet count and stored packet count from the data rows. The column header 'PktState' is located in spreadsheet column Y (25th column, zero-indexed column 24). Count all data rows where PktState is 'Normal' for total packets, and count rows where PktState is 'Stored' for stored packet count. Map these counts to the totalPackets and storedPackets fields of the ParsedRow output.",
-      "files": [
-        "frontend/src/utils/csvParser.ts"
-      ],
-      "components": [
-        "core-infrastructure@1.0.2",
-        "shadcn-ui@1.0.0",
-        "build-template-react@1.0.0",
-        "initial-app@1.0.0",
-        "github-export-icp-cli@1.0.0"
-      ],
-      "testIds": [
-        "REQ-3"
-      ],
-      "confidence": "high"
-    },
-    {
-      "featureId": "feature-update-the-parser-to-compute-gps-valid-fix-count-from-the-data-rows-the-column-header-gps-status-is-located-in-spreadsheet-column-o-15th-column-zero-indexed-column-14-count-all-data-rows-where-gps-status-is-valid-case-insensitive-as-gps-valid-fix-packets-map-this-count-to-the-validgpspackets-field-of-the-parsedrow-output",
-      "featureTitle": "Update the parser to compute GPS valid fix count from the data rows. The column header 'GPS Status' is located in spreadsheet column O (15th column, zero-indexed column 14). Count all data rows where GPS Status is 'Valid' (case-insensitive) as GPS valid fix packets. Map this count to the validGpsPackets field of the ParsedRow output.",
-      "files": [
-        "frontend/src/utils/csvParser.ts"
-      ],
-      "components": [
-        "core-infrastructure@1.0.2",
-        "shadcn-ui@1.0.0",
-        "build-template-react@1.0.0",
-        "initial-app@1.0.0",
-        "github-export-icp-cli@1.0.0"
-      ],
-      "testIds": [
-        "REQ-4"
-      ],
-      "confidence": "high"
-    },
-    {
-      "featureId": "feature-after-successfully-parsing-the-file-display-a-summary-preview-to-the-user-showing-the-extracted-gateway-details-unit-name-start-date-end-date-and-computed-statistics-total-packet-count-stored-packet-count-gps-valid-fix-count-before-the-user-submits-the-import-this-replaces-or-augments-the-existing-per-file-parsed-row-preview-in-csvimportsection-tsx",
-      "featureTitle": "After successfully parsing the file, display a summary preview to the user showing the extracted gateway details (unit name, start date, end date) and computed statistics (total packet count, stored packet count, GPS valid fix count) before the user submits the import. This replaces or augments the existing per-file parsed row preview in CSVImportSection.tsx.",
+      "featureId": "feature-investigate-and-fix-the-import-failure-in-csvimportsection-where-all-parsed-records-fail-to-upsert-to-the-backend-the-error-toast-shows-failed-to-import-unit-s10026-prd-2026-w09-from-s10026-prd-xls-followed-by-all-4-records-failed-to-import-the-unit-ids-are-derived-from-filenames-e-g-s10026-prd-s10006-prd-s10002-prd-identify-why-the-backend-upsert-calls-are-failing-likely-causes-include-1-the-unit-id-or-week-key-format-not-matching-what-the-backend-actor-expects-2-a-type-mismatch-in-the-data-being-sent-or-3-an-error-thrown-by-the-backend-actor-during-the-create-update-call-add-detailed-per-record-error-logging-to-the-console-and-ensure-the-error-toast-message-includes-the-specific-backend-error-reason-so-users-can-diagnose-the-problem",
+      "featureTitle": "Investigate and fix the import failure in CSVImportSection where all parsed records fail to upsert to the backend. The error toast shows 'Failed to import unit \"S10026_PRD\" (2026-W09) from \"S10026_PRD.xls\"' followed by 'All 4 records failed to import'. The unit IDs are derived from filenames (e.g. S10026_PRD, S10006-PRD, S10002-PRD). Identify why the backend upsert calls are failing — likely causes include: (1) the unit ID or week key format not matching what the backend actor expects, (2) a type mismatch in the data being sent, or (3) an error thrown by the backend actor during the create/update call. Add detailed per-record error logging to the console and ensure the error toast message includes the specific backend error reason so users can diagnose the problem.",
       "files": [
         "frontend/src/components/CSVImportSection.tsx"
       ],
@@ -88,7 +15,7 @@
         "github-export-icp-cli@1.0.0"
       ],
       "testIds": [
-        "REQ-5"
+        "REQ-1"
       ],
       "confidence": "high"
     }

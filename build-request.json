@@ -1,113 +1,36 @@
 {
   "kind": "build_request",
-  "title": "Fix CSV/Excel parser to extract gateway details and packet stats from uploaded file format",
-  "projectName": "RunTest GPS Report",
+  "title": "Fix CSV/XLS import failure — all records failing to upsert to backend",
+  "projectName": "RunTest Report",
   "priority": "high",
   "requirements": [
     {
       "id": "REQ-1",
-      "text": "Update the CSV/Excel parser in csvParser.ts to correctly detect and parse the file format shown in the uploaded screenshots. The file has a metadata header block in rows 1–7 before the data header row (row 8). The parser must stop throwing 'No data rows found' and instead correctly identify row 8 as the header row (blue highlighted row) and rows 9+ as data rows.",
-      "target": "frontend",
+      "text": "Investigate and fix the import failure in CSVImportSection where all parsed records fail to upsert to the backend. The error toast shows 'Failed to import unit \"S10026_PRD\" (2026-W09) from \"S10026_PRD.xls\"' followed by 'All 4 records failed to import'. The unit IDs are derived from filenames (e.g. S10026_PRD, S10006-PRD, S10002-PRD). Identify why the backend upsert calls are failing — likely causes include: (1) the unit ID or week key format not matching what the backend actor expects, (2) a type mismatch in the data being sent, or (3) an error thrown by the backend actor during the create/update call. Add detailed per-record error logging to the console and ensure the error toast message includes the specific backend error reason so users can diagnose the problem.",
+      "target": "both",
       "source": {
         "messageIds": [
-          "msg-1"
+          "msg-3"
         ],
         "quotes": [
-          "No data rows found in the uploaded files. Please check the file contents.",
-          "Uploading file will be in this format"
+          "unable to import to dash board receiving error"
         ]
       },
       "acceptanceCriteria": [
-        "Uploading the Excel file no longer shows 'No data rows found' error",
-        "Parser correctly skips metadata rows 1–7 (Customer Name, Group, Gateway, Start Date, End Date) and identifies row 8 as the column header row",
-        "Data rows starting from row 9 are successfully parsed"
-      ]
-    },
-    {
-      "id": "REQ-2",
-      "text": "Extract gateway details from the metadata rows (rows 1–6) of the uploaded file and use them to auto-populate form fields or report data. Specifically: parse the Gateway name (row 4, e.g. 'Gateway : N13-5_D20_Lite') as the unit name, parse the Start Date from row 5 ('Start Date & Time : 8 Feb'26 12:00 AM'), and parse the End Date / current date from row 6 ('End Date & Time : 23 Feb'26 12:00 AM').",
-      "target": "frontend",
-      "source": {
-        "messageIds": [
-          "msg-1"
-        ],
-        "quotes": [
-          "From the file you can get the gateway details like unit name, start date and current date"
-        ]
-      },
-      "acceptanceCriteria": [
-        "Unit name is extracted from the 'Gateway :' metadata row and populated in the import form or report entry",
-        "Start date is extracted from the 'Start Date & Time :' metadata row",
-        "End date (current date) is extracted from the 'End Date & Time :' metadata row",
-        "Extracted values are shown to the user before submission (e.g. in the parsed preview)"
-      ]
-    },
-    {
-      "id": "REQ-3",
-      "text": "Update the parser to compute total packet count and stored packet count from the data rows. The column header 'PktState' is located in spreadsheet column Y (25th column, zero-indexed column 24). Count all data rows where PktState is 'Normal' for total packets, and count rows where PktState is 'Stored' for stored packet count. Map these counts to the totalPackets and storedPackets fields of the ParsedRow output.",
-      "target": "frontend",
-      "source": {
-        "messageIds": [
-          "msg-1"
-        ],
-        "quotes": [
-          "For Total packets and stored packet count you can fetch the data from 'PktState' in 'Y' column Normal & Stored had been mentioned."
-        ]
-      },
-      "acceptanceCriteria": [
-        "Parser finds the 'PktState' column by header name (not hardcoded index) in the header row",
-        "Rows with PktState value 'Normal' are counted as total/normal packets",
-        "Rows with PktState value 'Stored' are counted as stored packets",
-        "Both counts are correctly reflected in the imported report entry"
-      ]
-    },
-    {
-      "id": "REQ-4",
-      "text": "Update the parser to compute GPS valid fix count from the data rows. The column header 'GPS Status' is located in spreadsheet column O (15th column, zero-indexed column 14). Count all data rows where GPS Status is 'Valid' (case-insensitive) as GPS valid fix packets. Map this count to the validGpsPackets field of the ParsedRow output.",
-      "target": "frontend",
-      "source": {
-        "messageIds": [
-          "msg-1"
-        ],
-        "quotes": [
-          "For GPS valid fix can be fetched from 'GPS Status' from column 'O'"
-        ]
-      },
-      "acceptanceCriteria": [
-        "Parser finds the 'GPS Status' column by header name in the header row",
-        "Rows where GPS Status equals 'Valid' (case-insensitive) are counted as GPS valid fix packets",
-        "Rows where GPS Status is 'Invalid' or other values are not counted as valid GPS fixes",
-        "The valid GPS fix count is correctly reflected in the imported report entry"
-      ]
-    },
-    {
-      "id": "REQ-5",
-      "text": "After successfully parsing the file, display a summary preview to the user showing the extracted gateway details (unit name, start date, end date) and computed statistics (total packet count, stored packet count, GPS valid fix count) before the user submits the import. This replaces or augments the existing per-file parsed row preview in CSVImportSection.tsx.",
-      "target": "frontend",
-      "source": {
-        "messageIds": [
-          "msg-1"
-        ],
-        "quotes": [
-          "Uploading file will be in this format and i had attached the error in dashboard tool and the screenshot of the file i had opened and sent"
-        ]
-      },
-      "acceptanceCriteria": [
-        "After a successful file parse, a preview card is shown with unit name, start date, end date, total packets, stored packets, and GPS valid fix count",
-        "The preview appears before the user clicks submit/import",
-        "If parsing fails or any key field is missing, a clear error message is shown instead"
+        "Importing valid XLS files with unit IDs like S10026_PRD, S10006-PRD, S10002-PRD for week 2026-W09 successfully upserts records to the backend without error",
+        "The 'All N records failed to import' toast no longer appears for valid files",
+        "If a record does fail, the error toast includes the specific backend error message (not just the unit ID and filename)",
+        "Successfully imported records appear on the Dashboard page under the correct week"
       ]
     }
   ],
   "constraints": [
-    "Column lookups for 'PktState' and 'GPS Status' must use header name matching, not hardcoded column index, to be robust to column reordering",
-    "Metadata row parsing must handle the 'Key : Value' text format (e.g. 'Gateway : N13-5_D20_Lite')",
-    "Do not break existing CSV/TSV parsing functionality"
+    "Do not modify files under frontend/src/hooks/useInternetIdentity.ts, frontend/src/hooks/useActor.ts, frontend/src/main.tsx, or frontend/src/components/ui",
+    "Unit ID must continue to be derived exclusively from the filename stem, not from file contents"
   ],
   "nonGoals": [
-    "Changes to the backend data model or Motoko actor",
-    "Support for file formats other than CSV, TSV, XLS, XLSX",
-    "Automatic GPS coordinate parsing or map display"
+    "Changing the file parsing logic for CSV/XLS/XLSX unless it is directly causing the upsert failure",
+    "Changes to the Report page or WeeklyReportTable filtering"
   ],
   "imageRequirements": {
     "required": [],

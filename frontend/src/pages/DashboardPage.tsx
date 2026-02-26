@@ -1,127 +1,114 @@
-import { useMemo, useState } from 'react';
-import { useGetAllReports, ALL_MODELS, getCurrentWeekLabel, getAdjacentWeek } from '@/hooks/useQueries';
-import { ModelSummaryCard } from '@/components/ModelSummaryCard';
+import { useState } from 'react';
+import { Activity, Package, MapPin, TrendingUp } from 'lucide-react';
+import { useGetAllReports, getISOWeekLabel, MODEL_LABELS, ALL_MODELS } from '@/hooks/useQueries';
 import { WeekNavigator } from '@/components/WeekNavigator';
-import { Skeleton } from '@/components/ui/skeleton';
-import { Badge } from '@/components/ui/badge';
-import { Satellite, Activity } from 'lucide-react';
-import { UnitModel } from '@/hooks/useQueries';
+import { ModelSummaryCard } from '@/components/ModelSummaryCard';
+import { UnitModel } from '@/backend';
 
-export function DashboardPage() {
-  const { data: allReports = [], isLoading } = useGetAllReports();
+export default function DashboardPage() {
+  const { data: reports = [], isLoading } = useGetAllReports();
+  const [currentWeek, setCurrentWeek] = useState(getISOWeekLabel());
 
-  // Determine available weeks from data
-  const availableWeeks = useMemo(() => {
-    const weeks = new Set(allReports.map(r => r.weekYear));
-    return Array.from(weeks).sort().reverse();
-  }, [allReports]);
+  // Derive available weeks from reports
+  const availableWeeks = Array.from(new Set(reports.map(r => r.weekYear))).sort();
 
-  // Default to most recent week with data, or current week
-  const defaultWeek = useMemo(() => {
-    return availableWeeks[0] ?? getCurrentWeekLabel();
-  }, [availableWeeks]);
+  // Auto-select the most recent available week if current week has no data
+  const effectiveWeek =
+    reports.some(r => r.weekYear === currentWeek)
+      ? currentWeek
+      : availableWeeks.length > 0
+        ? availableWeeks[availableWeeks.length - 1]
+        : currentWeek;
 
-  const [selectedWeek, setSelectedWeek] = useState<string | null>(null);
-  const currentWeek = selectedWeek ?? defaultWeek;
+  // Filter reports for current week
+  const weekReports = reports.filter(r => r.weekYear === effectiveWeek);
 
-  const handleWeekChange = (week: string) => {
-    setSelectedWeek(week);
-  };
-
-  // Aggregate stats for the selected week
-  const weekReports = useMemo(() => {
-    return allReports.filter(r => r.weekYear === currentWeek);
-  }, [allReports, currentWeek]);
-
+  // Aggregate stats
   const totalUnits = weekReports.length;
-  const totalPkts = weekReports.reduce((s, e) => s + Number(e.totalPkts), 0);
-  const validGpsPkts = weekReports.reduce((s, e) => s + Number(e.validGpsFixPkts), 0);
-  const overallGpsPct = totalPkts > 0 ? ((validGpsPkts / totalPkts) * 100).toFixed(1) : '0.0';
+  const totalPackets = weekReports.reduce((s, r) => s + Number(r.totalPkts), 0);
+  const validGpsPkts = weekReports.reduce((s, r) => s + Number(r.validGpsFixPkts), 0);
+  const gpsFixRate = totalPackets > 0 ? ((validGpsPkts / totalPackets) * 100).toFixed(1) : '0.0';
+
+  console.log('[DashboardPage] reports:', reports.length, 'effectiveWeek:', effectiveWeek, 'weekReports:', weekReports.length);
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-6">
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <img
-            src="/assets/generated/gps-icon.dim_128x128.png"
-            alt="GPS Icon"
-            className="w-10 h-10 object-contain"
-          />
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <img src="/assets/generated/gps-icon.dim_128x128.png" alt="GPS" className="w-12 h-12 rounded-lg opacity-90" />
           <div>
-            <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
-            <p className="text-sm text-muted-foreground">Weekly GPS unit performance overview</p>
+            <h1 className="text-2xl font-bold">Dashboard</h1>
+            <p className="text-muted-foreground text-sm">Weekly GPS unit performance overview</p>
           </div>
         </div>
-
         <WeekNavigator
-          currentWeek={currentWeek}
-          onWeekChange={handleWeekChange}
-          availableWeeks={availableWeeks.length > 0 ? availableWeeks : undefined}
+          currentWeek={effectiveWeek}
+          onWeekChange={setCurrentWeek}
+          availableWeeks={availableWeeks}
         />
       </div>
 
-      {/* Summary Stats Bar */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        {[
-          { label: 'Total Units', value: totalUnits, icon: Satellite },
-          { label: 'Total Packets', value: totalPkts.toLocaleString(), icon: Activity },
-          { label: 'Valid GPS Pkts', value: validGpsPkts.toLocaleString(), icon: Activity },
-          { label: 'GPS Fix Rate', value: `${overallGpsPct}%`, icon: Activity },
-        ].map(({ label, value, icon: Icon }) => (
-          <div key={label} className="bg-card border border-border rounded-lg p-3 flex items-center gap-3">
-            <div className="w-8 h-8 rounded-md bg-primary/10 border border-primary/20 flex items-center justify-center flex-shrink-0">
-              <Icon className="w-4 h-4 text-primary" />
-            </div>
-            <div>
-              <div className="font-mono text-lg font-semibold text-foreground leading-none">{value}</div>
-              <div className="text-xs text-muted-foreground mt-0.5">{label}</div>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Model Cards */}
+      {/* Stats Bar */}
       {isLoading ? (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {[1, 2, 3].map(i => (
-            <Skeleton key={i} className="h-64 bg-secondary" />
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {[...Array(4)].map((_, i) => (
+            <div key={i} className="bg-navy-800 border border-navy-600 rounded-lg p-4 animate-pulse h-20" />
           ))}
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {ALL_MODELS.map(model => (
-            <ModelSummaryCard
-              key={model}
-              model={model}
-              entries={weekReports.filter(r => r.unitModel === model)}
-            />
-          ))}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <StatCard icon={<Activity size={18} />} label="Total Units" value={totalUnits} />
+          <StatCard icon={<Package size={18} />} label="Total Packets" value={totalPackets.toLocaleString()} />
+          <StatCard icon={<MapPin size={18} />} label="Valid GPS Pkts" value={validGpsPkts.toLocaleString()} />
+          <StatCard icon={<TrendingUp size={18} />} label="GPS Fix Rate" value={`${gpsFixRate}%`} />
         </div>
       )}
 
+      {/* Model Summary Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {ALL_MODELS.map((model: UnitModel) => (
+          <ModelSummaryCard
+            key={model}
+            model={model}
+            entries={weekReports.filter(r => r.unitModel === model)}
+          />
+        ))}
+      </div>
+
       {/* Available Weeks */}
       {availableWeeks.length > 0 && (
-        <div className="bg-card border border-border rounded-lg p-4">
-          <h3 className="text-sm font-medium text-muted-foreground mb-3 uppercase tracking-wide">Available Weeks</h3>
+        <div className="bg-navy-800 border border-navy-600 rounded-lg p-4">
+          <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-3">Available Weeks</h3>
           <div className="flex flex-wrap gap-2">
             {availableWeeks.map(week => (
-              <Badge
+              <button
                 key={week}
-                variant={week === currentWeek ? 'default' : 'outline'}
-                className={`cursor-pointer font-mono text-xs transition-colors ${
-                  week === currentWeek
-                    ? 'bg-primary text-primary-foreground'
-                    : 'border-border text-muted-foreground hover:border-primary/50 hover:text-primary'
+                onClick={() => setCurrentWeek(week)}
+                className={`px-3 py-1 rounded text-xs font-mono font-medium transition-colors ${
+                  week === effectiveWeek
+                    ? 'bg-amber-400 text-navy-950'
+                    : 'bg-navy-700 text-muted-foreground hover:bg-navy-600 hover:text-foreground'
                 }`}
-                onClick={() => handleWeekChange(week)}
               >
                 {week}
-              </Badge>
+              </button>
             ))}
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function StatCard({ icon, label, value }: { icon: React.ReactNode; label: string; value: string | number }) {
+  return (
+    <div className="bg-navy-800 border border-navy-600 rounded-lg p-4 flex items-center gap-3">
+      <div className="text-amber-400">{icon}</div>
+      <div>
+        <div className="text-xl font-bold">{value}</div>
+        <div className="text-xs text-muted-foreground">{label}</div>
+      </div>
     </div>
   );
 }

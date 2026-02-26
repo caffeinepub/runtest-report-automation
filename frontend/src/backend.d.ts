@@ -21,8 +21,7 @@ export enum UnitModel {
     N135 = "N135"
 }
 export interface backendInterface {
-    createReport(unit: UnitModel, id: string, week: string, total: bigint, stored: bigint, valid: bigint): Promise<void>;
     getAllReports(): Promise<Array<ReportEntry>>;
     getReport(unitId: string, weekYear: string): Promise<ReportEntry | null>;
-    updateReport(unit: UnitModel, id: string, week: string, total: bigint, stored: bigint, valid: bigint): Promise<void>;
+    upsertReport(unit: UnitModel, id: string, week: string, total: bigint, stored: bigint, valid: bigint): Promise<void>;
 }

@@ -47,3 +47,5 @@ export function WeekNavigator({ currentWeek, onWeekChange, availableWeeks }: Wee
     </div>
   );
 }
+
+export default WeekNavigator;

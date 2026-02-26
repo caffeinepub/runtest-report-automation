@@ -12,9 +12,13 @@ interface ReportFiltersProps {
   onWeekChange: (week: string) => void;
   availableWeeks: string[];
   filteredEntries: ReportEntry[];
+  /** Entries filtered by model+week only (before unit ID filter), used to populate unit ID options */
+  modelWeekEntries: ReportEntry[];
+  selectedUnitId: string;
+  onUnitIdChange: (unitId: string) => void;
 }
 
-function exportToCSV(entries: ReportEntry[], week: string, model: UnitModel | 'ALL') {
+function exportToCSV(entries: ReportEntry[], week: string, model: UnitModel | 'ALL', unitId: string) {
   const modelLabel = model === 'ALL' ? 'All Models' : MODEL_LABELS[model];
   const headers = ['Unit ID', 'Model', 'Week', 'Total Packets', 'Stored Packets', 'Valid GPS Fix Packets', 'GPS Fix %', 'Stored %'];
 
@@ -52,7 +56,8 @@ function exportToCSV(entries: ReportEntry[], week: string, model: UnitModel | 'A
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
-  link.download = `runtest-report-${week}-${model}.csv`;
+  const unitSuffix = unitId !== 'ALL' ? `-${unitId}` : '';
+  link.download = `runtest-report-${week}-${model}${unitSuffix}.csv`;
   link.click();
   URL.revokeObjectURL(url);
 }
@@ -64,7 +69,15 @@ export function ReportFilters({
   onWeekChange,
   availableWeeks,
   filteredEntries,
+  modelWeekEntries,
+  selectedUnitId,
+  onUnitIdChange,
 }: ReportFiltersProps) {
+  // Build sorted unique unit ID list from model+week filtered entries
+  const unitIds = Array.from(new Set(modelWeekEntries.map(e => e.unitId))).sort((a, b) =>
+    a.localeCompare(b)
+  );
+
   return (
     <div className="flex flex-wrap items-end gap-4 p-4 bg-card border border-border rounded-lg">
       <div className="flex items-center gap-2 text-muted-foreground">
@@ -98,10 +111,31 @@ export function ReportFilters({
         </Select>
       </div>
 
+      <div className="space-y-1.5">
+        <Label className="text-xs text-muted-foreground uppercase tracking-wide">Unit ID</Label>
+        <Select
+          value={selectedUnitId}
+          onValueChange={onUnitIdChange}
+          disabled={unitIds.length === 0}
+        >
+          <SelectTrigger className="w-44 bg-secondary border-border">
+            <SelectValue placeholder="All Units" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="ALL">All Units</SelectItem>
+            {unitIds.map(id => (
+              <SelectItem key={id} value={id}>
+                {id}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
       <div className="ml-auto">
         <Button
           variant="outline"
-          onClick={() => exportToCSV(filteredEntries, selectedWeek, selectedModel)}
+          onClick={() => exportToCSV(filteredEntries, selectedWeek, selectedModel, selectedUnitId)}
           disabled={filteredEntries.length === 0}
           className="border-primary/30 text-primary hover:bg-primary/10 gap-2"
         >

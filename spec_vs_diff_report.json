@@ -1,15 +1,16 @@
 {
   "kind": "spec_vs_diff_report",
   "version": "1.0",
-  "generatedAt": "2026-02-26T05:05:18.810Z",
-  "summary": "The diff implements all five requirements: REQ-1 (Waggle portal format detection with metadata block skip), REQ-2 (gateway metadata extraction via Key:Value parsing), REQ-3 (PktState column lookup by header name for Normal/Stored counts), REQ-4 (GPS Status column lookup by header name for Valid fix count), and REQ-5 (FileSummaryCard preview component in CSVImportSection.tsx). All acceptance criteria appear to be addressed by the changes in csvParser.ts and CSVImportSection.tsx.",
+  "generatedAt": "2026-02-26T13:43:23.728Z",
+  "summary": "The diff addresses REQ-1 by fixing the root cause of all import failures: mutation functions in useQueries.ts were calling non-existent actor methods (actor.createReport/actor.updateReport) instead of actor.upsertReport. The fix updates useDirectUpsert and related hooks to call the correct actor.upsertReport method. Error toast messages now include the specific backend error reason, and detailed console logging was added for each upsert attempt. Unit ID continues to be derived exclusively from the filename stem. The backend main.mo was also updated. All four acceptance criteria appear to be addressed.",
   "missing_requirements": [],
   "hallucinated_features": [],
-  "confidence": 0.88,
+  "confidence": 0.87,
   "changed_files": [
+    "backend/main.mo",
     "frontend-file-summaries.txt",
     "frontend/src/components/CSVImportSection.tsx",
-    "frontend/src/utils/csvParser.ts",
+    "frontend/src/hooks/useQueries.ts",
     "project_state.json"
   ]
 }

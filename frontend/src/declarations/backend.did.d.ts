@@ -22,13 +22,9 @@ export type UnitModel = { 'N13' : null } |
   { 'N125' : null } |
   { 'N135' : null };
 export interface _SERVICE {
-  'createReport' : ActorMethod<
-    [UnitModel, string, string, bigint, bigint, bigint],
-    undefined
-  >,
   'getAllReports' : ActorMethod<[], Array<ReportEntry>>,
   'getReport' : ActorMethod<[string, string], [] | [ReportEntry]>,
-  'updateReport' : ActorMethod<
+  'upsertReport' : ActorMethod<
     [UnitModel, string, string, bigint, bigint, bigint],
     undefined
   >,

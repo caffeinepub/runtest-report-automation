@@ -1,426 +1,418 @@
-export interface FileMetadata {
-  unitName?: string;
-  startDate?: string;
-  endDate?: string;
-}
+// Waggle portal CSV/XLS/XLSX parser
+// Parses exported files from the Waggle GPS tracking portal
+// Each file is treated as a single device unit; the unit ID is ALWAYS derived from the filename (without extension).
+// Values inside the file (columns, rows) are NEVER used as the unit ID.
 
 export interface ParsedRow {
   unitId: string;
-  totalPkts: string;
-  storedPkts: string;
-  validGpsFixPkts: string;
-  error?: string;
-  rawLine: string;
+  totalPkts: number;
+  storedPkts: number;
+  totalGpsPackets: number;
+  validGpsFixPkts: number;
+  model?: string;
+  weekYear?: string;
+  startDate?: string;
+  endDate?: string;
+  gatewayName?: string;
 }
 
-export interface ParsedFileResult {
+export interface ParseResult {
   rows: ParsedRow[];
-  metadata?: FileMetadata;
-  /** Aggregated stats computed from the raw data rows (PktState + GPS Status columns) */
-  aggregated?: {
-    totalPackets: number;
-    storedPackets: number;
-    validGpsPackets: number;
-  };
+  weekYear?: string;
+  startDate?: string;
+  endDate?: string;
+  gatewayName?: string;
+  /** Device name derived exclusively from the filename (without extension) */
+  deviceName?: string;
+  errors: string[];
 }
 
-// Cache the dynamically imported XLSX module so we only fetch it once
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let xlsxModuleCache: any = null;
-let xlsxLoadPromise: Promise<any> | null = null; // eslint-disable-line @typescript-eslint/no-explicit-any
+// Normalize a string: trim whitespace (including non-breaking spaces), lowercase
+function norm(s: unknown): string {
+  if (s === null || s === undefined) return '';
+  return String(s)
+    .replace(/[\u00a0\u2000-\u200b\u202f\u205f\u3000\ufeff]/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+// Normalize for fuzzy column matching: remove ALL whitespace, underscores, hyphens
+function normKey(s: unknown): string {
+  return norm(s).replace(/[\s_\-]/g, '');
+}
+
+// Parse a date string from Waggle format
+function parseWaggleDate(dateStr: string): string {
+  if (!dateStr) return '';
+  const match = dateStr.match(/(\d{4}-\d{2}-\d{2})/);
+  if (match) return match[1];
+  return dateStr.trim();
+}
+
+// Extract ISO week string from a date string
+function getISOWeek(dateStr: string): string {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return '';
+  const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  date.setUTCDate(date.getUTCDate() + 4 - (date.getUTCDay() || 7));
+  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+  const weekNo = Math.ceil((((date.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+  return `${date.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`;
+}
+
+// Detect unit model from unit ID string (filename stem)
+function detectModel(unitId: string): string {
+  const id = unitId.toUpperCase();
+  if (id.includes('N13-5') || id.includes('N135')) return 'N135';
+  if (id.includes('N12-5') || id.includes('N125')) return 'N125';
+  if (id.includes('N13')) return 'N13';
+  return '';
+}
 
 /**
- * Loads SheetJS via dynamic ES module import from CDN.
+ * Strip file extension from a filename to get the device name (unit ID).
+ * This is the ONLY source of truth for the unit ID — never use file content.
  */
-async function loadXLSX(): Promise<any> { // eslint-disable-line @typescript-eslint/no-explicit-any
-  if (xlsxModuleCache) return xlsxModuleCache;
-  if (xlsxLoadPromise) return xlsxLoadPromise;
+function deviceNameFromFilename(filename: string): string {
+  // Remove path separators if any
+  const base = filename.split(/[\\/]/).pop() ?? filename;
+  // Remove extension (last dot and everything after)
+  return base.replace(/\.[^.]+$/, '');
+}
 
-  xlsxLoadPromise = (async () => {
-    const cdnUrls = [
-      'https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs',
-      'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/+esm',
-    ];
+// Check if a normalized-key cell value matches 'pktstate' variants
+function isPktStateHeader(cell: unknown): boolean {
+  const k = normKey(cell);
+  return k === 'pktstate' || k === 'packetstate' || k === 'pkt';
+}
 
-    let lastError: Error | null = null;
+// Check if a normalized-key cell value matches 'gps status' variants
+function isGpsStatusHeader(cell: unknown): boolean {
+  const k = normKey(cell);
+  return k === 'gpsstatus' || k === 'gpsfix' || k === 'gpsfixstatus';
+}
 
-    for (const url of cdnUrls) {
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const mod = await (Function('u', 'return import(u)')(url) as Promise<any>);
-        if (mod && (mod.read || mod.default?.read)) {
-          xlsxModuleCache = mod.read ? mod : mod.default;
-          return xlsxModuleCache;
-        }
-      } catch (err) {
-        lastError = err instanceof Error ? err : new Error(String(err));
+// Parse Waggle portal format (CSV/TSV/XLS/XLSX)
+// Returns null if the file doesn't look like a Waggle export.
+// IMPORTANT: unitId is NEVER extracted from file content — it is always set to 'pending'
+// and will be replaced by the filename stem after this function returns.
+function parseWaggleFormat(grid: unknown[][]): ParseResult | null {
+  // --- Metadata extraction ---
+  let gatewayName = '';
+  let startDate = '';
+  let endDate = '';
+
+  // Scan first 30 rows for metadata
+  for (let i = 0; i < Math.min(30, grid.length); i++) {
+    const row = grid[i];
+    if (!row || row.length === 0) continue;
+    const first = norm(row[0]);
+    const second = row[1] !== undefined ? String(row[1]).trim() : '';
+
+    if (first.startsWith('gateway')) {
+      const colonIdx = first.indexOf(':');
+      if (colonIdx !== -1) {
+        gatewayName = first.slice(colonIdx + 1).trim();
+        if (!gatewayName && second) gatewayName = second;
+      } else if (second) {
+        gatewayName = second;
       }
     }
 
-    xlsxLoadPromise = null;
-    throw new Error(
-      `Could not load Excel parser library. ${lastError?.message ?? 'Please check your internet connection.'}`
-    );
-  })();
-
-  return xlsxLoadPromise;
-}
-
-/**
- * Extracts metadata from the header block rows (rows before the actual data header).
- * Looks for "Key : Value" patterns in the first few rows.
- */
-function extractMetadata(rows: string[][]): FileMetadata {
-  const metadata: FileMetadata = {};
-
-  for (const row of rows) {
-    // Join all cells to handle cases where the value spans multiple cells
-    const fullText = row.join(' ').trim();
-
-    // Gateway : N13-5_D20_Lite
-    const gatewayMatch = fullText.match(/gateway\s*:\s*(.+)/i);
-    if (gatewayMatch) {
-      metadata.unitName = gatewayMatch[1].trim();
-      continue;
-    }
-
-    // Start Date & Time : 8 Feb'26 12:00 AM
-    const startMatch = fullText.match(/start\s+date\s*(?:&|and)?\s*time\s*:\s*(.+)/i);
-    if (startMatch) {
-      metadata.startDate = startMatch[1].trim();
-      continue;
-    }
-
-    // End Date & Time : 23 Feb'26 12:00 AM
-    const endMatch = fullText.match(/end\s+date\s*(?:&|and)?\s*time\s*:\s*(.+)/i);
-    if (endMatch) {
-      metadata.endDate = endMatch[1].trim();
-      continue;
-    }
-  }
-
-  return metadata;
-}
-
-/**
- * Returns true if the row looks like the actual data header row for the Waggle portal export.
- * Checks for column names like "Date", "Timezone", "PktState", "GPS Status".
- */
-function isWaggleDataHeaderRow(cols: string[]): boolean {
-  const joined = cols.map(c => c.toLowerCase().trim());
-  return (
-    joined.includes('date') ||
-    joined.includes('timezone') ||
-    joined.some(c => c === 'pktstate') ||
-    joined.some(c => c === 'gps status')
-  );
-}
-
-/**
- * Returns true if the row looks like a legacy GPS packet data header row.
- * Checks for unit ID / packet-related column names.
- */
-function isLegacyDataHeaderRow(cols: string[]): boolean {
-  const checkCols = cols.slice(0, 6);
-  return checkCols.some(c =>
-    /unit\s*id|unit_id|unitid/i.test(c) ||
-    /total\s*(reporting\s*)?p(ac)?k(e)?t/i.test(c) ||
-    /stored\s*p(ac)?k(e)?t/i.test(c) ||
-    /valid\s*gps/i.test(c) ||
-    /gps\s*fix/i.test(c)
-  );
-}
-
-/**
- * Returns true if the row is a metadata/summary row that should be silently skipped.
- */
-function isMetadataRow(cols: string[]): boolean {
-  const nonEmpty = cols.filter(c => c !== '');
-  if (nonEmpty.length === 0) return true;
-
-  const firstCol = cols[0] ?? '';
-
-  if (/gateway\s*details?/i.test(firstCol)) return true;
-  if (/gateway\s*details?/i.test(cols[1] ?? '')) return true;
-  if (/report\s*(summary|details?|date|period|generated)/i.test(firstCol)) return true;
-  if (/customer\s*name/i.test(firstCol)) return true;
-  if (/group\s*:/i.test(firstCol)) return true;
-  if (/gateway\s*:/i.test(firstCol)) return true;
-  if (/start\s*date/i.test(firstCol)) return true;
-  if (/end\s*date/i.test(firstCol)) return true;
-  if (/^\s*$/.test(firstCol) && nonEmpty.length <= 2) return true;
-
-  return false;
-}
-
-/**
- * Scans up to the first `maxScanRows` rows to find the index of the true data header row.
- * Returns -1 if no header row is found.
- */
-function findHeaderRowIndex(rows: string[][], maxScanRows = 20): number {
-  const limit = Math.min(rows.length, maxScanRows);
-  for (let i = 0; i < limit; i++) {
-    if (isWaggleDataHeaderRow(rows[i]) || isLegacyDataHeaderRow(rows[i])) return i;
-  }
-  return -1;
-}
-
-/**
- * Finds a column index by header name (case-insensitive, trimmed).
- */
-function findColumnIndex(headerRow: string[], name: string): number {
-  const lower = name.toLowerCase().trim();
-  return headerRow.findIndex(h => h.toLowerCase().trim() === lower);
-}
-
-/**
- * Parses a 2D array of string cells into a ParsedFileResult.
- *
- * For Waggle portal exports (with metadata block + PktState/GPS Status columns):
- *   - Extracts metadata (unit name, start/end date) from rows before the header
- *   - Aggregates PktState Normal/Stored counts and GPS Status Valid count
- *   - Returns a single ParsedRow with the gateway as unitId
- *
- * For legacy CSV format (unit ID, total, stored, valid columns):
- *   - Returns one ParsedRow per data row
- */
-function parseRows(allCols: string[][], _sourceLabel = ''): ParsedFileResult {
-  const headerIdx = findHeaderRowIndex(allCols);
-
-  // Extract metadata from rows before the header
-  const metadataRows = headerIdx > 0 ? allCols.slice(0, headerIdx) : [];
-  const metadata = extractMetadata(metadataRows);
-
-  // Data rows start after the header row
-  const dataStartIdx = headerIdx >= 0 ? headerIdx + 1 : 0;
-  const headerRow = headerIdx >= 0 ? allCols[headerIdx] : [];
-
-  // Check if this is a Waggle portal export (has PktState or GPS Status columns)
-  const pktStateIdx = findColumnIndex(headerRow, 'PktState');
-  const gpsStatusIdx = findColumnIndex(headerRow, 'GPS Status');
-  const isWaggleFormat = pktStateIdx >= 0 || gpsStatusIdx >= 0;
-
-  if (isWaggleFormat) {
-    // Aggregate counts from data rows
-    let totalPackets = 0;
-    let storedPackets = 0;
-    let validGpsPackets = 0;
-
-    for (let i = dataStartIdx; i < allCols.length; i++) {
-      const cols = allCols[i];
-
-      // Skip fully empty rows
-      if (cols.every(c => c === '')) continue;
-
-      // Count PktState
-      if (pktStateIdx >= 0) {
-        const pktState = (cols[pktStateIdx] ?? '').trim().toLowerCase();
-        if (pktState === 'normal') {
-          totalPackets++;
-        } else if (pktState === 'stored') {
-          storedPackets++;
-        }
-      }
-
-      // Count GPS Status
-      if (gpsStatusIdx >= 0) {
-        const gpsStatus = (cols[gpsStatusIdx] ?? '').trim().toLowerCase();
-        if (gpsStatus === 'valid') {
-          validGpsPackets++;
-        }
+    if (first.includes('start') && first.includes('date')) {
+      const colonIdx = first.indexOf(':');
+      if (colonIdx !== -1) {
+        const val = first.slice(colonIdx + 1).trim();
+        startDate = parseWaggleDate(val || second);
+      } else if (second) {
+        startDate = parseWaggleDate(second);
       }
     }
 
-    // Total = Normal + Stored (all packets)
-    const grandTotal = totalPackets + storedPackets;
-
-    // Build a single aggregated ParsedRow using the gateway name as unitId
-    const unitId = metadata.unitName ?? 'Unknown Gateway';
-    const row: ParsedRow = {
-      unitId,
-      totalPkts: String(grandTotal),
-      storedPkts: String(storedPackets),
-      validGpsFixPkts: String(validGpsPackets),
-      rawLine: `${unitId},${grandTotal},${storedPackets},${validGpsPackets}`,
-    };
-
-    row.error = validateParsedRow(row);
-
-    return {
-      rows: [row],
-      metadata,
-      aggregated: {
-        totalPackets: grandTotal,
-        storedPackets,
-        validGpsPackets,
-      },
-    };
+    if (first.includes('end') && first.includes('date')) {
+      const colonIdx = first.indexOf(':');
+      if (colonIdx !== -1) {
+        const val = first.slice(colonIdx + 1).trim();
+        endDate = parseWaggleDate(val || second);
+      } else if (second) {
+        endDate = parseWaggleDate(second);
+      }
+    }
   }
 
-  // Legacy format: one row per unit
-  const results: ParsedRow[] = [];
+  // --- Header row detection ---
+  // Scan ALL rows to find the header row containing 'PktState' and 'GPS Status' columns.
+  let headerRowIdx = -1;
+  let pktStateCol = -1;
+  let gpsStatusCol = -1;
 
-  for (let i = dataStartIdx; i < allCols.length; i++) {
-    const cols = allCols[i];
+  for (let i = 0; i < grid.length; i++) {
+    const row = grid[i];
+    if (!row || row.length === 0) continue;
 
-    if (cols.every(c => c === '')) continue;
-    if (isMetadataRow(cols)) continue;
-    if (isWaggleDataHeaderRow(cols) || isLegacyDataHeaderRow(cols)) continue;
+    let foundPktState = -1;
+    let foundGpsStatus = -1;
 
-    const rawLine = cols.join(',');
+    for (let j = 0; j < row.length; j++) {
+      const cell = row[j];
+      if (cell === null || cell === undefined || String(cell).trim() === '') continue;
 
-    if (cols.length < 4) {
-      const firstCol = cols[0] ?? '';
-      if (!firstCol.trim() || isMetadataRow(cols)) continue;
-
-      results.push({
-        unitId: firstCol,
-        totalPkts: '',
-        storedPkts: '',
-        validGpsFixPkts: '',
-        error: `Expected at least 4 columns, found ${cols.length}`,
-        rawLine,
-      });
-      continue;
+      if (isPktStateHeader(cell)) foundPktState = j;
+      if (isGpsStatusHeader(cell)) foundGpsStatus = j;
     }
 
-    const [unitId, totalPkts, storedPkts, validGpsFixPkts] = cols;
-
-    if (!unitId.trim()) continue;
-    if (isLegacyDataHeaderRow(cols)) continue;
-    if (isMetadataRow(cols)) continue;
-
-    const row: ParsedRow = {
-      unitId: unitId ?? '',
-      totalPkts: totalPkts ?? '',
-      storedPkts: storedPkts ?? '',
-      validGpsFixPkts: validGpsFixPkts ?? '',
-      rawLine,
-    };
-
-    row.error = validateParsedRow(row);
-    results.push(row);
-  }
-
-  return { rows: results, metadata };
-}
-
-/**
- * Reads a File as an ArrayBuffer, wrapped in a Promise.
- */
-function readFileAsArrayBuffer(file: File): Promise<ArrayBuffer> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (reader.result instanceof ArrayBuffer) {
-        resolve(reader.result);
-      } else {
-        reject(new Error('FileReader did not return an ArrayBuffer'));
-      }
-    };
-    reader.onerror = () => {
-      reject(new Error(`Could not read file "${file.name}". The file may be corrupted or inaccessible.`));
-    };
-    reader.readAsArrayBuffer(file);
-  });
-}
-
-/**
- * Parses raw CSV or TSV text into a ParsedFileResult.
- */
-export function parseCSV(raw: string): ParsedFileResult {
-  const lines = raw.split(/\r?\n/);
-
-  let delimiter = ',';
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (trimmed) {
-      delimiter = trimmed.includes('\t') ? '\t' : ',';
+    if (foundPktState !== -1 && foundGpsStatus !== -1) {
+      headerRowIdx = i;
+      pktStateCol = foundPktState;
+      gpsStatusCol = foundGpsStatus;
+      console.log(
+        `[csvParser] Header row found at index ${i}.`,
+        `PktState col: ${pktStateCol} (raw: "${row[pktStateCol]}"),`,
+        `GPS Status col: ${gpsStatusCol} (raw: "${row[gpsStatusCol]}")`
+      );
       break;
     }
   }
 
-  const allCols: string[][] = [];
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) {
-      allCols.push([]);
-      continue;
+  if (headerRowIdx === -1) {
+    console.error('[csvParser] Header row NOT found. Could not locate "PktState" and "GPS Status" columns.');
+    console.error('[csvParser] Dumping all non-empty rows for diagnosis:');
+    for (let i = 0; i < Math.min(grid.length, 50); i++) {
+      const row = grid[i];
+      if (!row || row.length === 0) continue;
+      const hasContent = row.some(c => c !== null && c !== undefined && String(c).trim() !== '');
+      if (hasContent) {
+        console.error(`  Row ${i}:`, JSON.stringify(row));
+      }
     }
-    const cols = trimmed.split(delimiter).map(c => c.trim().replace(/^["']|["']$/g, ''));
-    allCols.push(cols);
+    return null;
   }
 
-  return parseRows(allCols);
+  // --- Data row extraction ---
+  // unitId is intentionally set to 'pending' here — it will be replaced by the
+  // filename stem in aggregateToSingleUnit. No column value is ever used as unitId.
+  const rows: ParsedRow[] = [];
+  let dataRowCount = 0;
+
+  for (let i = headerRowIdx + 1; i < grid.length; i++) {
+    const row = grid[i];
+    if (!row || row.length === 0) continue;
+
+    const rawPktState = row[pktStateCol];
+    const rawGpsStatus = row[gpsStatusCol];
+    if (
+      (rawPktState === null || rawPktState === undefined || String(rawPktState).trim() === '') &&
+      (rawGpsStatus === null || rawGpsStatus === undefined || String(rawGpsStatus).trim() === '')
+    ) {
+      continue;
+    }
+
+    const pktStateVal = normKey(rawPktState);
+    const gpsStatusVal = normKey(rawGpsStatus);
+
+    const validPktStates = ['normal', 'stored'];
+    const validGpsStates = ['valid', 'invalid'];
+    const hasPktState = validPktStates.includes(pktStateVal);
+    const hasGpsState = validGpsStates.includes(gpsStatusVal);
+
+    if (!hasPktState && !hasGpsState) {
+      continue;
+    }
+
+    dataRowCount++;
+
+    const isNormal = pktStateVal === 'normal';
+    const isStored = pktStateVal === 'stored';
+    const isValidGps = gpsStatusVal === 'valid';
+    const hasGpsData = gpsStatusVal === 'valid' || gpsStatusVal === 'invalid';
+
+    rows.push({
+      // unitId is always 'pending' — NEVER derived from file content
+      unitId: 'pending',
+      totalPkts: isNormal || isStored ? 1 : 0,
+      storedPkts: isStored ? 1 : 0,
+      totalGpsPackets: hasGpsData ? 1 : 0,
+      validGpsFixPkts: isValidGps ? 1 : 0,
+      model: '',
+    });
+  }
+
+  console.log(`[csvParser] Data rows extracted after header: ${dataRowCount}`);
+
+  if (rows.length === 0) {
+    console.error('[csvParser] No data rows found after the header row.');
+    for (let i = headerRowIdx + 1; i < Math.min(headerRowIdx + 6, grid.length); i++) {
+      console.error(`  Post-header row ${i}:`, JSON.stringify(grid[i]));
+    }
+  }
+
+  const weekYear = startDate ? getISOWeek(startDate) : '';
+
+  return {
+    rows,
+    weekYear,
+    startDate,
+    endDate,
+    gatewayName,
+    errors: [],
+  };
 }
 
 /**
- * Parses an Excel file (.xlsx or .xls) using SheetJS loaded dynamically via ES module import.
+ * Aggregate all individual packet rows into a single summary row for the device.
+ * The unitId is ALWAYS set to deviceName (the filename stem) — never from row content.
  */
-export async function parseExcelFile(file: File): Promise<ParsedFileResult> {
-  let XLSX: any; // eslint-disable-line @typescript-eslint/no-explicit-any
-  try {
-    XLSX = await loadXLSX();
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Failed to load Excel parser library';
-    throw new Error(message);
+function aggregateToSingleUnit(rows: ParsedRow[], deviceName: string, resultWeekYear?: string): ParsedRow[] {
+  if (rows.length === 0) return [];
+
+  const model = detectModel(deviceName);
+  const weekYear = resultWeekYear || rows.find(r => r.weekYear)?.weekYear;
+
+  const aggregated: ParsedRow = {
+    // unitId is always the filename stem — this is the single source of truth
+    unitId: deviceName,
+    totalPkts: 0,
+    storedPkts: 0,
+    totalGpsPackets: 0,
+    validGpsFixPkts: 0,
+    model: model || '',
+    weekYear,
+  };
+
+  for (const row of rows) {
+    aggregated.totalPkts += row.totalPkts;
+    aggregated.storedPkts += row.storedPkts;
+    aggregated.totalGpsPackets += row.totalGpsPackets;
+    aggregated.validGpsFixPkts += row.validGpsFixPkts;
   }
 
-  if (!XLSX || !XLSX.read) {
-    throw new Error('SheetJS failed to initialize. Please refresh the page and try again.');
-  }
-
-  let arrayBuffer: ArrayBuffer;
-  try {
-    arrayBuffer = await readFileAsArrayBuffer(file);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : `Could not read file "${file.name}"`;
-    throw new Error(message);
-  }
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let workbook: any;
-  try {
-    workbook = XLSX.read(new Uint8Array(arrayBuffer), { type: 'array' });
-  } catch {
-    throw new Error(`Could not parse "${file.name}" as an Excel file. The file may be corrupted or in an unsupported format.`);
-  }
-
-  const firstSheetName: string | undefined = workbook.SheetNames[0];
-  if (!firstSheetName) {
-    return { rows: [] };
-  }
-
-  const worksheet = workbook.Sheets[firstSheetName];
-  let rawRows: unknown[][];
-  try {
-    rawRows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
-  } catch {
-    throw new Error(`Failed to read sheet data from "${file.name}".`);
-  }
-
-  const allCols: string[][] = rawRows.map(rawRow =>
-    (rawRow as unknown[]).map(cell => String(cell ?? '').trim())
-  );
-
-  return parseRows(allCols, file.name);
+  return [aggregated];
 }
 
-export function validateParsedRow(row: ParsedRow): string | undefined {
-  if (!row.unitId.trim()) return 'Unit ID is required';
+/**
+ * Main entry point: parse a file (CSV, TSV, XLS, XLSX).
+ * The unit ID for all records is ALWAYS derived from the filename (without extension).
+ * No value from inside the file is ever used as the unit ID.
+ */
+export async function parseCSVFile(file: File): Promise<ParseResult> {
+  const fileName = file.name.toLowerCase();
+  const isExcel = fileName.endsWith('.xls') || fileName.endsWith('.xlsx');
+  // This is the ONLY place unitId originates — the filename stem
+  const deviceName = deviceNameFromFilename(file.name);
 
-  const total = Number(row.totalPkts.trim());
-  const stored = Number(row.storedPkts.trim());
-  const valid = Number(row.validGpsFixPkts.trim());
+  if (isExcel) {
+    return parseExcelFile(file, deviceName);
+  }
 
-  if (row.totalPkts.trim() === '' || !Number.isInteger(total) || total < 0)
-    return 'Total packets must be a non-negative integer';
-  if (row.storedPkts.trim() === '' || !Number.isInteger(stored) || stored < 0)
-    return 'Stored packets must be a non-negative integer';
-  if (row.validGpsFixPkts.trim() === '' || !Number.isInteger(valid) || valid < 0)
-    return 'Valid GPS fix packets must be a non-negative integer';
-  if (stored > total) return 'Stored packets cannot exceed total packets';
-  if (valid > total) return 'Valid GPS fix packets cannot exceed total packets';
+  // CSV/TSV parsing
+  const text = await file.text();
+  const lines = text.split(/\r?\n/);
 
-  return undefined;
+  const firstLine = lines[0] || '';
+  const delimiter = firstLine.includes('\t') ? '\t' : ',';
+
+  const grid: string[][] = lines.map(line =>
+    line.split(delimiter).map(cell => cell.replace(/^"|"$/g, '').trim())
+  );
+
+  const result = parseWaggleFormat(grid);
+  if (result) {
+    result.rows = aggregateToSingleUnit(result.rows, deviceName, result.weekYear || undefined);
+    if (!result.weekYear && result.rows[0]?.weekYear) {
+      result.weekYear = result.rows[0].weekYear;
+    }
+    result.deviceName = deviceName;
+    return result;
+  }
+
+  return {
+    rows: [],
+    weekYear: undefined,
+    startDate: undefined,
+    endDate: undefined,
+    gatewayName: undefined,
+    deviceName,
+    errors: ['Could not parse file. Make sure it is a valid Waggle portal export with PktState and GPS Status columns.'],
+  };
+}
+
+// Parse Excel file using SheetJS (loaded via CDN in index.html)
+async function parseExcelFile(file: File, deviceName: string): Promise<ParseResult> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const XLSX = (window as any).XLSX;
+  if (!XLSX) {
+    console.error('[csvParser] SheetJS (XLSX) not available on window. Check CDN script in index.html.');
+    return {
+      rows: [],
+      deviceName,
+      errors: ['SheetJS library not loaded. Please refresh the page and try again.'],
+    };
+  }
+
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+
+    const workbook = XLSX.read(arrayBuffer, { type: 'array', cellText: true, cellDates: false });
+
+    if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
+      console.error('[csvParser] No sheets found in workbook.');
+      return { rows: [], deviceName, errors: ['No sheets found in the Excel file.'] };
+    }
+
+    const sheetName = workbook.SheetNames[0];
+    const sheet = workbook.Sheets[sheetName];
+
+    console.log(`[csvParser] Excel sheet "${sheetName}" selected. Sheet ref: ${sheet['!ref'] ?? 'undefined'}`);
+
+    const grid: unknown[][] = XLSX.utils.sheet_to_json(sheet, {
+      header: 1,
+      defval: '',
+      blankrows: true,
+      raw: false,
+    });
+
+    console.log(`[csvParser] Excel grid loaded. Total rows: ${grid.length}`);
+
+    if (grid.length === 0) {
+      console.error('[csvParser] Sheet is empty after conversion.');
+      return { rows: [], deviceName, errors: ['The Excel file appears to be empty.'] };
+    }
+
+    console.log('[csvParser] First 15 rows of grid:');
+    for (let i = 0; i < Math.min(15, grid.length); i++) {
+      const row = grid[i];
+      const hasContent = Array.isArray(row) && row.some(c => c !== null && c !== undefined && String(c).trim() !== '');
+      if (hasContent) {
+        console.log(`  Row ${i}:`, JSON.stringify(row));
+      }
+    }
+
+    const result = parseWaggleFormat(grid);
+    if (result) {
+      if (result.rows.length === 0 && result.errors.length === 0) {
+        console.error('[csvParser] parseWaggleFormat returned 0 rows with no errors — possible value mismatch.');
+        result.errors.push('No data rows found in file. Open the browser console (F12) to see detailed parsing information.');
+      }
+      result.rows = aggregateToSingleUnit(result.rows, deviceName, result.weekYear || undefined);
+      if (!result.weekYear && result.rows[0]?.weekYear) {
+        result.weekYear = result.rows[0].weekYear;
+      }
+      result.deviceName = deviceName;
+      return result;
+    }
+
+    return {
+      rows: [],
+      deviceName,
+      errors: ['No data rows found in file. Open the browser console (F12) to see detailed parsing information. Make sure the file is a valid Waggle portal export with PktState and GPS Status columns.'],
+    };
+  } catch (err) {
+    console.error('[csvParser] Error parsing Excel file:', err);
+    return {
+      rows: [],
+      deviceName,
+      errors: [`Failed to parse Excel file: ${err instanceof Error ? err.message : String(err)}`],
+    };
+  }
 }

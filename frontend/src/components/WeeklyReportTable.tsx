@@ -34,20 +34,18 @@ function GpsFixBadge({ pct }: { pct: number }) {
 }
 
 export function WeeklyReportTable({ entries, isLoading, selectedModel, selectedWeek }: WeeklyReportTableProps) {
-  const filteredEntries = useMemo(() => {
-    return entries
-      .filter(e => e.weekYear === selectedWeek)
-      .filter(e => selectedModel === 'ALL' || e.unitModel === selectedModel)
-      .sort((a, b) => a.unitId.localeCompare(b.unitId));
-  }, [entries, selectedWeek, selectedModel]);
+  // Entries are already filtered upstream (by week, model, and unit ID); just sort them here
+  const sortedEntries = useMemo(() => {
+    return [...entries].sort((a, b) => a.unitId.localeCompare(b.unitId));
+  }, [entries]);
 
   const totals = useMemo(() => {
-    const totalPkts = filteredEntries.reduce((s, e) => s + Number(e.totalPkts), 0);
-    const storedPkts = filteredEntries.reduce((s, e) => s + Number(e.storedPkts), 0);
-    const validGpsPkts = filteredEntries.reduce((s, e) => s + Number(e.validGpsFixPkts), 0);
+    const totalPkts = sortedEntries.reduce((s, e) => s + Number(e.totalPkts), 0);
+    const storedPkts = sortedEntries.reduce((s, e) => s + Number(e.storedPkts), 0);
+    const validGpsPkts = sortedEntries.reduce((s, e) => s + Number(e.validGpsFixPkts), 0);
     const gpsFixPct = totalPkts > 0 ? (validGpsPkts / totalPkts) * 100 : 0;
     return { totalPkts, storedPkts, validGpsPkts, gpsFixPct };
-  }, [filteredEntries]);
+  }, [sortedEntries]);
 
   if (isLoading) {
     return (
@@ -59,7 +57,7 @@ export function WeeklyReportTable({ entries, isLoading, selectedModel, selectedW
     );
   }
 
-  if (filteredEntries.length === 0) {
+  if (sortedEntries.length === 0) {
     return (
       <div className="text-center py-16 text-muted-foreground">
         <div className="text-4xl mb-3">📡</div>
@@ -86,7 +84,7 @@ export function WeeklyReportTable({ entries, isLoading, selectedModel, selectedW
           </TableRow>
         </TableHeader>
         <TableBody>
-          {filteredEntries.map((entry) => {
+          {sortedEntries.map((entry) => {
             const total = Number(entry.totalPkts);
             const stored = Number(entry.storedPkts);
             const valid = Number(entry.validGpsFixPkts);
@@ -121,7 +119,7 @@ export function WeeklyReportTable({ entries, isLoading, selectedModel, selectedW
         <TableFooter>
           <TableRow className="border-t-2 border-primary/30 bg-secondary/50 font-semibold">
             <TableCell className="font-mono text-sm text-primary">
-              TOTALS ({filteredEntries.length} units)
+              TOTALS ({sortedEntries.length} units)
             </TableCell>
             {selectedModel === 'ALL' && <TableCell />}
             <TableCell className="data-table-cell text-right text-primary">

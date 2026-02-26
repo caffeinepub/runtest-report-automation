@@ -23,18 +23,13 @@ export const ReportEntry = IDL.Record({
 });
 
 export const idlService = IDL.Service({
-  'createReport' : IDL.Func(
-      [UnitModel, IDL.Text, IDL.Text, IDL.Nat, IDL.Nat, IDL.Nat],
-      [],
-      [],
-    ),
   'getAllReports' : IDL.Func([], [IDL.Vec(ReportEntry)], ['query']),
   'getReport' : IDL.Func(
       [IDL.Text, IDL.Text],
       [IDL.Opt(ReportEntry)],
       ['query'],
     ),
-  'updateReport' : IDL.Func(
+  'upsertReport' : IDL.Func(
       [UnitModel, IDL.Text, IDL.Text, IDL.Nat, IDL.Nat, IDL.Nat],
       [],
       [],
@@ -59,18 +54,13 @@ export const idlFactory = ({ IDL }) => {
   });
   
   return IDL.Service({
-    'createReport' : IDL.Func(
-        [UnitModel, IDL.Text, IDL.Text, IDL.Nat, IDL.Nat, IDL.Nat],
-        [],
-        [],
-      ),
     'getAllReports' : IDL.Func([], [IDL.Vec(ReportEntry)], ['query']),
     'getReport' : IDL.Func(
         [IDL.Text, IDL.Text],
         [IDL.Opt(ReportEntry)],
         ['query'],
       ),
-    'updateReport' : IDL.Func(
+    'upsertReport' : IDL.Func(
         [UnitModel, IDL.Text, IDL.Text, IDL.Nat, IDL.Nat, IDL.Nat],
         [],
         [],

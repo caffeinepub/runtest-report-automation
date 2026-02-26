@@ -1,9 +1,9 @@
 import { RouterProvider, createRouter, createRoute, createRootRoute, Outlet } from '@tanstack/react-router';
 import { Toaster } from '@/components/ui/sonner';
 import { Layout } from '@/components/Layout';
-import { DashboardPage } from '@/pages/DashboardPage';
+import DashboardPage from '@/pages/DashboardPage';
 import { DataEntryPage } from '@/pages/DataEntryPage';
-import { ReportPage } from '@/pages/ReportPage';
+import ReportPage from '@/pages/ReportPage';
 
 // Root route with layout
 const rootRoute = createRootRoute({

@@ -1,93 +1,22 @@
 {
   "kind": "implementation_plan",
   "version": "1.0",
-  "title": "Fix CSV/Excel parser to extract gateway details and packet stats from uploaded file format",
+  "title": "Fix CSV/XLS import failure — all records failing to upsert to backend",
   "requirements": [
     {
       "id": "REQ-1",
-      "summary": "Update csvParser.ts to detect and skip metadata rows 1–7, correctly identify row 8 as the header row, and parse data rows starting from row 9",
+      "summary": "Fix import failure in CSVImportSection where all parsed records fail to upsert to the backend, add detailed per-record error logging, and ensure error toast messages include specific backend error reasons",
       "acceptanceCriteria": [
-        "Uploading the Excel file no longer shows 'No data rows found' error",
-        "Parser correctly skips metadata rows 1–7 (Customer Name, Group, Gateway, Start Date, End Date) and identifies row 8 as the column header row",
-        "Data rows starting from row 9 are successfully parsed"
-      ],
-      "file_operations": [
-        {
-          "path": "frontend/src/utils/csvParser.ts",
-          "operation": "modify",
-          "description": "Modify the parseFile function to detect and skip the metadata header block (rows 1–7) before identifying the actual data header row (row 8). Implement logic to recognize the metadata block by detecting 'Customer Name :' or 'Gateway :' patterns in the first few rows, then scan for the first row containing column headers like 'Date', 'Timezone', 'PktState', or 'GPS Status'. Store the detected header row index and begin data parsing from the next row. Update error handling to avoid throwing 'No data rows found' when metadata rows are present."
-        }
-      ]
-    },
-    {
-      "id": "REQ-2",
-      "summary": "Extract gateway details (unit name, start date, end date) from metadata rows and make them available for auto-population",
-      "acceptanceCriteria": [
-        "Unit name is extracted from the 'Gateway :' metadata row and populated in the import form or report entry",
-        "Start date is extracted from the 'Start Date & Time :' metadata row",
-        "End date (current date) is extracted from the 'End Date & Time :' metadata row",
-        "Extracted values are shown to the user before submission (e.g. in the parsed preview)"
-      ],
-      "file_operations": [
-        {
-          "path": "frontend/src/utils/csvParser.ts",
-          "operation": "modify",
-          "description": "Add a metadata extraction function that parses rows 1–7 to extract gateway details. For each metadata row, split by the colon separator and trim whitespace to get the key-value pair. Extract the Gateway name from the 'Gateway :' row (e.g., 'N13-5_D20_Lite'), parse the start date from 'Start Date & Time :' row (e.g., '8 Feb'26 12:00 AM'), and parse the end date from 'End Date & Time :' row (e.g., '23 Feb'26 12:00 AM'). Return these extracted metadata fields alongside the parsed data rows in the ParsedFileResult structure. Update the ParsedFileResult type to include optional metadata fields: unitName, startDate, endDate."
-        },
-        {
-          "path": "frontend/src/components/CSVImportSection.tsx",
-          "operation": "modify",
-          "description": "Update the file parsing handler to capture extracted metadata (unitName, startDate, endDate) from the parser result. Store this metadata in component state alongside the parsed rows. If metadata is present, display it in the parsed file preview card before the data table. Add UI elements to show the extracted unit name, start date, and end date to the user before they submit the import."
-        }
-      ]
-    },
-    {
-      "id": "REQ-3",
-      "summary": "Compute total packet count and stored packet count from the 'PktState' column and map them to ParsedRow output",
-      "acceptanceCriteria": [
-        "Parser finds the 'PktState' column by header name (not hardcoded index) in the header row",
-        "Rows with PktState value 'Normal' are counted as total/normal packets",
-        "Rows with PktState value 'Stored' are counted as stored packets",
-        "Both counts are correctly reflected in the imported report entry"
-      ],
-      "file_operations": [
-        {
-          "path": "frontend/src/utils/csvParser.ts",
-          "operation": "modify",
-          "description": "After identifying the header row, locate the 'PktState' column by scanning the header row for a case-insensitive match of 'PktState' (trim whitespace). Store the column index. For each data row, read the value at the PktState column index. Count rows where PktState equals 'Normal' (case-insensitive, trimmed) as total/normal packets, and count rows where PktState equals 'Stored' (case-insensitive, trimmed) as stored packets. Aggregate these counts across all rows in the file and include them in the ParsedRow or ParsedFileResult output. Map totalPackets to the 'Normal' count and storedPackets to the 'Stored' count."
-        }
-      ]
-    },
-    {
-      "id": "REQ-4",
-      "summary": "Compute GPS valid fix count from the 'GPS Status' column and map it to ParsedRow output",
-      "acceptanceCriteria": [
-        "Parser finds the 'GPS Status' column by header name in the header row",
-        "Rows where GPS Status equals 'Valid' (case-insensitive) are counted as GPS valid fix packets",
-        "Rows where GPS Status is 'Invalid' or other values are not counted as valid GPS fixes",
-        "The valid GPS fix count is correctly reflected in the imported report entry"
-      ],
-      "file_operations": [
-        {
-          "path": "frontend/src/utils/csvParser.ts",
-          "operation": "modify",
-          "description": "After identifying the header row, locate the 'GPS Status' column by scanning the header row for a case-insensitive match of 'GPS Status' (trim whitespace). Store the column index. For each data row, read the value at the GPS Status column index. Count rows where GPS Status equals 'Valid' (case-insensitive, trimmed) as GPS valid fix packets. Aggregate this count across all rows in the file and include it in the ParsedRow or ParsedFileResult output as validGpsPackets. Do not count rows where GPS Status is 'Invalid' or any other value."
-        }
-      ]
-    },
-    {
-      "id": "REQ-5",
-      "summary": "Display a summary preview showing extracted gateway details and computed statistics before user submits the import",
-      "acceptanceCriteria": [
-        "After a successful file parse, a preview card is shown with unit name, start date, end date, total packets, stored packets, and GPS valid fix count",
-        "The preview appears before the user clicks submit/import",
-        "If parsing fails or any key field is missing, a clear error message is shown instead"
+        "Importing valid XLS files with unit IDs like S10026_PRD, S10006-PRD, S10002-PRD for week 2026-W09 successfully upserts records to the backend without error",
+        "The 'All N records failed to import' toast no longer appears for valid files",
+        "If a record does fail, the error toast includes the specific backend error message (not just the unit ID and filename)",
+        "Successfully imported records appear on the Dashboard page under the correct week"
       ],
       "file_operations": [
         {
           "path": "frontend/src/components/CSVImportSection.tsx",
           "operation": "modify",
-          "description": "After a file is successfully parsed, render a preview card that displays the extracted metadata (unit name, start date, end date) and computed statistics (total packet count, stored packet count, GPS valid fix count) before the existing parsed rows table. Use a Card component with a clear heading like 'Parsed File Summary' or 'Import Preview'. Display each field with a label (e.g., 'Unit Name:', 'Start Date:', 'End Date:', 'Total Packets:', 'Stored Packets:', 'GPS Valid Fix Count:'). If any of these fields are missing or undefined, show a warning message indicating incomplete data. Position this preview above the submit/import button so users can review before submission."
+          "description": "Investigate and fix the backend upsert failure by examining how the component calls the upsertReport mutation. Add detailed console logging before each upsert attempt (logging unitId, weekYear, model, totalPkts, storedPkts, validGpsFixPkts). Ensure the unit ID format matches what the backend expects (check for extra spaces, case sensitivity, or character encoding issues). Verify that the model enum value from the selector matches the UnitModel type exactly. Ensure weekYear is in the correct ISO week format (YYYY-Www). Capture and log the specific error thrown by the backend actor during upsert, then include that error message in the toast notification so users see the root cause (not just 'All N records failed to import'). Test with the provided sample files (S10026_PRD.xls, S10006-PRD.xls, S10002-PRD.xls) to confirm successful import and verify records appear on the Dashboard under week 2026-W09."
         }
       ]
     }

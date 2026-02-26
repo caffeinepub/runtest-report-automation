@@ -103,81 +103,66 @@ export enum UnitModel {
     N135 = "N135"
 }
 export interface backendInterface {
-    createReport(unit: UnitModel, id: string, week: string, total: bigint, stored: bigint, valid: bigint): Promise<void>;
     getAllReports(): Promise<Array<ReportEntry>>;
     getReport(unitId: string, weekYear: string): Promise<ReportEntry | null>;
-    updateReport(unit: UnitModel, id: string, week: string, total: bigint, stored: bigint, valid: bigint): Promise<void>;
+    upsertReport(unit: UnitModel, id: string, week: string, total: bigint, stored: bigint, valid: bigint): Promise<void>;
 }
 import type { ReportEntry as _ReportEntry, UnitModel as _UnitModel } from "./declarations/backend.did.d.ts";
 export class Backend implements backendInterface {
     constructor(private actor: ActorSubclass<_SERVICE>, private _uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, private _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, private processError?: (error: unknown) => never){}
-    async createReport(arg0: UnitModel, arg1: string, arg2: string, arg3: bigint, arg4: bigint, arg5: bigint): Promise<void> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.createReport(to_candid_UnitModel_n1(this._uploadFile, this._downloadFile, arg0), arg1, arg2, arg3, arg4, arg5);
-                return result;
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.createReport(to_candid_UnitModel_n1(this._uploadFile, this._downloadFile, arg0), arg1, arg2, arg3, arg4, arg5);
-            return result;
-        }
-    }
     async getAllReports(): Promise<Array<ReportEntry>> {
         if (this.processError) {
             try {
                 const result = await this.actor.getAllReports();
-                return from_candid_vec_n3(this._uploadFile, this._downloadFile, result);
+                return from_candid_vec_n1(this._uploadFile, this._downloadFile, result);
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
             const result = await this.actor.getAllReports();
-            return from_candid_vec_n3(this._uploadFile, this._downloadFile, result);
+            return from_candid_vec_n1(this._uploadFile, this._downloadFile, result);
         }
     }
     async getReport(arg0: string, arg1: string): Promise<ReportEntry | null> {
         if (this.processError) {
             try {
                 const result = await this.actor.getReport(arg0, arg1);
-                return from_candid_opt_n8(this._uploadFile, this._downloadFile, result);
+                return from_candid_opt_n6(this._uploadFile, this._downloadFile, result);
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
             const result = await this.actor.getReport(arg0, arg1);
-            return from_candid_opt_n8(this._uploadFile, this._downloadFile, result);
+            return from_candid_opt_n6(this._uploadFile, this._downloadFile, result);
         }
     }
-    async updateReport(arg0: UnitModel, arg1: string, arg2: string, arg3: bigint, arg4: bigint, arg5: bigint): Promise<void> {
+    async upsertReport(arg0: UnitModel, arg1: string, arg2: string, arg3: bigint, arg4: bigint, arg5: bigint): Promise<void> {
         if (this.processError) {
             try {
-                const result = await this.actor.updateReport(to_candid_UnitModel_n1(this._uploadFile, this._downloadFile, arg0), arg1, arg2, arg3, arg4, arg5);
+                const result = await this.actor.upsertReport(to_candid_UnitModel_n7(this._uploadFile, this._downloadFile, arg0), arg1, arg2, arg3, arg4, arg5);
                 return result;
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.updateReport(to_candid_UnitModel_n1(this._uploadFile, this._downloadFile, arg0), arg1, arg2, arg3, arg4, arg5);
+            const result = await this.actor.upsertReport(to_candid_UnitModel_n7(this._uploadFile, this._downloadFile, arg0), arg1, arg2, arg3, arg4, arg5);
             return result;
         }
     }
 }
-function from_candid_ReportEntry_n4(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _ReportEntry): ReportEntry {
-    return from_candid_record_n5(_uploadFile, _downloadFile, value);
+function from_candid_ReportEntry_n2(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _ReportEntry): ReportEntry {
+    return from_candid_record_n3(_uploadFile, _downloadFile, value);
 }
-function from_candid_UnitModel_n6(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _UnitModel): UnitModel {
-    return from_candid_variant_n7(_uploadFile, _downloadFile, value);
+function from_candid_UnitModel_n4(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _UnitModel): UnitModel {
+    return from_candid_variant_n5(_uploadFile, _downloadFile, value);
 }
-function from_candid_opt_n8(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [_ReportEntry]): ReportEntry | null {
-    return value.length === 0 ? null : from_candid_ReportEntry_n4(_uploadFile, _downloadFile, value[0]);
+function from_candid_opt_n6(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [_ReportEntry]): ReportEntry | null {
+    return value.length === 0 ? null : from_candid_ReportEntry_n2(_uploadFile, _downloadFile, value[0]);
 }
-function from_candid_record_n5(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+function from_candid_record_n3(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
     unitModel: _UnitModel;
     validGpsFixPkts: bigint;
     weekYear: string;
@@ -193,7 +178,7 @@ function from_candid_record_n5(_uploadFile: (file: ExternalBlob) => Promise<Uint
     storedPkts: bigint;
 } {
     return {
-        unitModel: from_candid_UnitModel_n6(_uploadFile, _downloadFile, value.unitModel),
+        unitModel: from_candid_UnitModel_n4(_uploadFile, _downloadFile, value.unitModel),
         validGpsFixPkts: value.validGpsFixPkts,
         weekYear: value.weekYear,
         unitId: value.unitId,
@@ -201,7 +186,7 @@ function from_candid_record_n5(_uploadFile: (file: ExternalBlob) => Promise<Uint
         storedPkts: value.storedPkts
     };
 }
-function from_candid_variant_n7(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+function from_candid_variant_n5(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
     N13: null;
 } | {
     N125: null;
@@ -210,13 +195,13 @@ function from_candid_variant_n7(_uploadFile: (file: ExternalBlob) => Promise<Uin
 }): UnitModel {
     return "N13" in value ? UnitModel.N13 : "N125" in value ? UnitModel.N125 : "N135" in value ? UnitModel.N135 : value;
 }
-function from_candid_vec_n3(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: Array<_ReportEntry>): Array<ReportEntry> {
-    return value.map((x)=>from_candid_ReportEntry_n4(_uploadFile, _downloadFile, x));
+function from_candid_vec_n1(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: Array<_ReportEntry>): Array<ReportEntry> {
+    return value.map((x)=>from_candid_ReportEntry_n2(_uploadFile, _downloadFile, x));
 }
-function to_candid_UnitModel_n1(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: UnitModel): _UnitModel {
-    return to_candid_variant_n2(_uploadFile, _downloadFile, value);
+function to_candid_UnitModel_n7(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: UnitModel): _UnitModel {
+    return to_candid_variant_n8(_uploadFile, _downloadFile, value);
 }
-function to_candid_variant_n2(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: UnitModel): {
+function to_candid_variant_n8(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: UnitModel): {
     N13: null;
 } | {
     N125: null;

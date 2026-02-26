@@ -1,5 +1,5 @@
 import { DataEntryForm } from '@/components/DataEntryForm';
-import { CSVImportSection } from '@/components/CSVImportSection';
+import CSVImportSection from '@/components/CSVImportSection';
 import { Separator } from '@/components/ui/separator';
 import { PlusCircle } from 'lucide-react';
 

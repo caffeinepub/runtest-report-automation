@@ -1,36 +1,44 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useActor } from './useActor';
-import { type ReportEntry, UnitModel } from '../backend';
+import { UnitModel, ReportEntry } from '@/backend';
 
 export { UnitModel };
 export type { ReportEntry };
 
-export const MODEL_LABELS: Record<UnitModel, string> = {
-  [UnitModel.N135]: 'N13.5',
-  [UnitModel.N13]: 'N13',
-  [UnitModel.N125]: 'N12.5',
-};
+// ── Week helpers ──────────────────────────────────────────────────────────────
 
-export const ALL_MODELS = [UnitModel.N135, UnitModel.N13, UnitModel.N125] as const;
-
-// Get current ISO week label e.g. "2024-W12"
-export function getCurrentWeekLabel(): string {
-  const now = new Date();
-  const year = now.getFullYear();
-  const startOfYear = new Date(year, 0, 1);
-  const dayOfYear = Math.floor((now.getTime() - startOfYear.getTime()) / 86400000) + 1;
-  const weekNum = Math.ceil(dayOfYear / 7);
-  return `${year}-W${String(weekNum).padStart(2, '0')}`;
+export function getISOWeekLabel(date: Date = new Date()): string {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() + 3 - ((d.getDay() + 6) % 7));
+  const week1 = new Date(d.getFullYear(), 0, 4);
+  const weekNum =
+    1 +
+    Math.round(
+      ((d.getTime() - week1.getTime()) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7
+    );
+  return `${d.getFullYear()}-W${String(weekNum).padStart(2, '0')}`;
 }
 
-export function getWeekLabel(year: number, week: number): string {
-  return `${year}-W${String(week).padStart(2, '0')}`;
+// Alias for backward compatibility
+export const getCurrentWeekLabel = getISOWeekLabel;
+
+export function weekLabelToDate(label: string): Date {
+  const [yearStr, weekStr] = label.split('-W');
+  const year = parseInt(yearStr, 10);
+  const week = parseInt(weekStr, 10);
+  const jan4 = new Date(year, 0, 4);
+  const startOfWeek1 = new Date(jan4);
+  startOfWeek1.setDate(jan4.getDate() - ((jan4.getDay() + 6) % 7));
+  const result = new Date(startOfWeek1);
+  result.setDate(startOfWeek1.getDate() + (week - 1) * 7);
+  return result;
 }
 
 export function parseWeekLabel(label: string): { year: number; week: number } | null {
   const match = label.match(/^(\d{4})-W(\d{2})$/);
   if (!match) return null;
-  return { year: parseInt(match[1]), week: parseInt(match[2]) };
+  return { year: parseInt(match[1], 10), week: parseInt(match[2], 10) };
 }
 
 export function getAdjacentWeek(label: string, delta: number): string {
@@ -45,23 +53,39 @@ export function getAdjacentWeek(label: string, delta: number): string {
     year += 1;
     week = 1;
   }
-  return getWeekLabel(year, week);
+  return `${year}-W${String(week).padStart(2, '0')}`;
 }
+
+export const MODEL_LABELS: Record<UnitModel, string> = {
+  [UnitModel.N135]: 'N13.5',
+  [UnitModel.N13]: 'N13',
+  [UnitModel.N125]: 'N12.5',
+};
+
+export const ALL_MODELS: UnitModel[] = [UnitModel.N135, UnitModel.N13, UnitModel.N125];
+
+// ── Queries ───────────────────────────────────────────────────────────────────
 
 export function useGetAllReports() {
   const { actor, isFetching } = useActor();
+
   return useQuery<ReportEntry[]>({
     queryKey: ['reports'],
     queryFn: async () => {
       if (!actor) return [];
-      return actor.getAllReports();
+      const data = await actor.getAllReports();
+      console.log('[useGetAllReports] fetched', data.length, 'reports');
+      return data;
     },
     enabled: !!actor && !isFetching,
+    staleTime: 0,
+    refetchOnWindowFocus: true,
   });
 }
 
 export function useGetReport(unitId: string, weekYear: string) {
   const { actor, isFetching } = useActor();
+
   return useQuery<ReportEntry | null>({
     queryKey: ['report', unitId, weekYear],
     queryFn: async () => {
@@ -72,54 +96,12 @@ export function useGetReport(unitId: string, weekYear: string) {
   });
 }
 
-export function useCreateReport() {
-  const { actor } = useActor();
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async (params: {
-      unit: UnitModel;
-      id: string;
-      week: string;
-      total: bigint;
-      stored: bigint;
-      valid: bigint;
-    }) => {
-      if (!actor) throw new Error('Actor not initialized');
-      return actor.createReport(params.unit, params.id, params.week, params.total, params.stored, params.valid);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['reports'] });
-      queryClient.invalidateQueries({ queryKey: ['report'] });
-    },
-  });
-}
+// ── Mutations ─────────────────────────────────────────────────────────────────
 
-export function useUpdateReport() {
-  const { actor } = useActor();
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async (params: {
-      unit: UnitModel;
-      id: string;
-      week: string;
-      total: bigint;
-      stored: bigint;
-      valid: bigint;
-    }) => {
-      if (!actor) throw new Error('Actor not initialized');
-      return actor.updateReport(params.unit, params.id, params.week, params.total, params.stored, params.valid);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['reports'] });
-      queryClient.invalidateQueries({ queryKey: ['report'] });
-    },
-  });
-}
-
-// Upsert: try create first, if fails (already exists) do update
 export function useUpsertReport() {
   const { actor } = useActor();
   const queryClient = useQueryClient();
+
   return useMutation({
     mutationFn: async (params: {
       unit: UnitModel;
@@ -130,15 +112,48 @@ export function useUpsertReport() {
       valid: bigint;
     }) => {
       if (!actor) throw new Error('Actor not initialized');
-      try {
-        await actor.createReport(params.unit, params.id, params.week, params.total, params.stored, params.valid);
-      } catch {
-        await actor.updateReport(params.unit, params.id, params.week, params.total, params.stored, params.valid);
-      }
+      await actor.upsertReport(params.unit, params.id, params.week, params.total, params.stored, params.valid);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['reports'] });
-      queryClient.invalidateQueries({ queryKey: ['report'] });
     },
   });
+}
+
+// Keep legacy aliases so any code that imports useCreateReport / useUpdateReport still compiles
+export const useCreateReport = useUpsertReport;
+export const useUpdateReport = useUpsertReport;
+
+// ── Direct upsert helper (for bulk imports without mutation hook) ──────────────
+
+export function useDirectUpsert() {
+  const { actor } = useActor();
+  const queryClient = useQueryClient();
+
+  const upsertOne = async (params: {
+    unit: UnitModel;
+    id: string;
+    week: string;
+    total: bigint;
+    stored: bigint;
+    valid: bigint;
+  }) => {
+    if (!actor) throw new Error('Actor not initialized');
+    console.log(`[useDirectUpsert] Calling actor.upsertReport:`, {
+      unit: params.unit,
+      id: params.id,
+      week: params.week,
+      total: params.total.toString(),
+      stored: params.stored.toString(),
+      valid: params.valid.toString(),
+    });
+    await actor.upsertReport(params.unit, params.id, params.week, params.total, params.stored, params.valid);
+  };
+
+  const invalidate = () => {
+    console.log('[useDirectUpsert] Invalidating reports cache');
+    return queryClient.invalidateQueries({ queryKey: ['reports'] });
+  };
+
+  return { upsertOne, invalidate };
 }

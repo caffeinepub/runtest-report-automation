@@ -1,80 +1,73 @@
-import { useMemo, useState } from 'react';
-import { useGetAllReports, UnitModel, getCurrentWeekLabel } from '@/hooks/useQueries';
-import { WeeklyReportTable } from '@/components/WeeklyReportTable';
+import { useState, useEffect } from 'react';
+import { useGetAllReports, getISOWeekLabel, UnitModel } from '@/hooks/useQueries';
 import { ReportFilters } from '@/components/ReportFilters';
-import { ClipboardList } from 'lucide-react';
+import { WeeklyReportTable } from '@/components/WeeklyReportTable';
+import { filterValidEntries } from '@/utils/reportFilters';
 
-export function ReportPage() {
-  const { data: allReports = [], isLoading } = useGetAllReports();
-
-  const availableWeeks = useMemo(() => {
-    const weeks = new Set(allReports.map(r => r.weekYear));
-    return Array.from(weeks).sort().reverse();
-  }, [allReports]);
-
-  const defaultWeek = useMemo(() => {
-    return availableWeeks[0] ?? getCurrentWeekLabel();
-  }, [availableWeeks]);
-
-  const [selectedWeek, setSelectedWeek] = useState<string | null>(null);
+export default function ReportPage() {
+  const { data: rawReports = [], isLoading } = useGetAllReports();
+  const [currentWeek, setCurrentWeek] = useState(getISOWeekLabel());
   const [selectedModel, setSelectedModel] = useState<UnitModel | 'ALL'>('ALL');
+  const [selectedUnitId, setSelectedUnitId] = useState<string>('ALL');
 
-  const currentWeek = selectedWeek ?? defaultWeek;
+  // Strip invalid unit IDs once at the top level so all downstream data is clean
+  const reports = filterValidEntries(rawReports);
 
-  const filteredEntries = useMemo(() => {
-    return allReports
-      .filter(e => e.weekYear === currentWeek)
-      .filter(e => selectedModel === 'ALL' || e.unitModel === selectedModel)
-      .sort((a, b) => a.unitId.localeCompare(b.unitId));
-  }, [allReports, currentWeek, selectedModel]);
+  const availableWeeks = Array.from(new Set(reports.map(r => r.weekYear))).sort();
+
+  // Auto-select the most recent available week if current week has no data
+  useEffect(() => {
+    if (reports.length > 0 && !reports.some(r => r.weekYear === currentWeek)) {
+      const sorted = [...availableWeeks].sort();
+      if (sorted.length > 0) {
+        setCurrentWeek(sorted[sorted.length - 1]);
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reports]);
+
+  // Reset unit ID filter when model or week changes
+  useEffect(() => {
+    setSelectedUnitId('ALL');
+  }, [selectedModel, currentWeek]);
+
+  // Filter by week and model
+  const modelWeekFiltered = reports.filter(r => {
+    const weekMatch = r.weekYear === currentWeek;
+    const modelMatch = selectedModel === 'ALL' || r.unitModel === selectedModel;
+    return weekMatch && modelMatch;
+  });
+
+  // Further filter by unit ID
+  const filteredReports = selectedUnitId === 'ALL'
+    ? modelWeekFiltered
+    : modelWeekFiltered.filter(r => r.unitId === selectedUnitId);
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      {/* Page Header */}
-      <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-lg bg-primary/20 border border-primary/30 flex items-center justify-center">
-          <ClipboardList className="w-5 h-5 text-primary" />
-        </div>
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Weekly Report</h1>
-          <p className="text-sm text-muted-foreground">
-            View and export GPS unit packet data by week and model
-          </p>
-        </div>
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold">Weekly Reports</h1>
+        <p className="text-muted-foreground text-sm">Detailed GPS packet data by unit and week</p>
       </div>
 
-      {/* Filters */}
       <ReportFilters
         selectedModel={selectedModel}
         onModelChange={setSelectedModel}
         selectedWeek={currentWeek}
-        onWeekChange={setSelectedWeek}
+        onWeekChange={setCurrentWeek}
         availableWeeks={availableWeeks}
-        filteredEntries={filteredEntries}
+        filteredEntries={filteredReports}
+        modelWeekEntries={modelWeekFiltered}
+        selectedUnitId={selectedUnitId}
+        onUnitIdChange={setSelectedUnitId}
       />
 
-      {/* Report Table */}
-      <div className="bg-card border border-border rounded-lg overflow-hidden">
-        <div className="px-4 py-3 border-b border-border bg-secondary/30 flex items-center justify-between">
-          <span className="text-sm font-medium">
-            Report: <span className="font-mono text-primary">{currentWeek}</span>
-            {selectedModel !== 'ALL' && (
-              <span className="ml-2 text-muted-foreground">
-                / {selectedModel === UnitModel.N135 ? 'N13.5' : selectedModel === UnitModel.N13 ? 'N13' : 'N12.5'}
-              </span>
-            )}
-          </span>
-          <span className="text-xs text-muted-foreground font-mono">
-            {filteredEntries.length} units
-          </span>
-        </div>
-        <WeeklyReportTable
-          entries={allReports}
-          isLoading={isLoading}
-          selectedModel={selectedModel}
-          selectedWeek={currentWeek}
-        />
-      </div>
+      <WeeklyReportTable
+        entries={filteredReports}
+        isLoading={isLoading}
+        selectedModel={selectedModel}
+        selectedWeek={currentWeek}
+      />
     </div>
   );
 }
