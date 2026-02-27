@@ -1,58 +1,56 @@
 {
   "kind": "build_request",
-  "title": "Fix Stored Packet Count Parsing from PktState Column",
+  "title": "Fix CSV/XLS unit ID resolution — Address column not found",
   "projectName": "GPS Packet Tracker",
   "priority": "high",
   "requirements": [
     {
       "id": "REQ-1",
-      "text": "Fix the CSV parser to correctly extract the Stored packet count from the uploaded file's 'PktState' column. The PktState column contains rows with values 'Normal' and 'Stored'. The count of rows where PktState equals 'Stored' (or the numeric value associated with that state) should be mapped to the `storedPkts` field. Currently, Stored packet count is being set to 0 instead of the correct derived value. The relationship is: Normal + Stored = Total packets hit.",
+      "text": "Fix the CSV/XLS parser so that unit IDs are correctly resolved from the 'Address' column in Waggle Portal export files. The debug panel shows unitId='Address not found' for every row even though col 25 is mapped to 'Address' and the header row is correctly detected. The parser must locate the Address column by scanning the detected header row for the keyword 'Address' (case-insensitive) and use that column index to read each row's unit ID, rather than failing silently and emitting 'Address not found'.",
       "target": "frontend",
       "source": {
         "messageIds": [
           "msg-1"
         ],
         "quotes": [
-          "Stored pkt count is given as 0. Why?",
-          "in uploading file Y coloumn with name PktState has (Normal+Stored) = Total pkts hit"
+          "Unable to import the file",
+          "unitId='Address not found' total='aggregated' stored='aggregated' valid='aggregated' pktState='Normal'"
         ]
       },
       "acceptanceCriteria": [
-        "When a file is uploaded with a 'PktState' column containing 'Normal' and 'Stored' values, the parser correctly counts rows where PktState is 'Stored' and assigns that value to storedPkts.",
-        "The STORED PKTS column in the Weekly Reports table shows non-zero values matching the actual count of 'Stored' state packets from the uploaded file.",
-        "Normal + Stored packet counts sum to equal the Total packets hit count.",
-        "Existing Normal packet count parsing remains correct and unaffected."
+        "Uploading the Waggle Portal XLS file no longer produces 'Address not found' unit IDs.",
+        "The debug panel shows actual unit ID values (e.g. device serial numbers) for the first 3 sample rows.",
+        "The '2648 rows will be skipped due to missing or invalid unit IDs' warning is resolved and valid records are found.",
+        "The 'No valid records found in the file' error message is no longer shown when a valid Waggle Portal export is imported.",
+        "Column mapping in the debug panel correctly identifies col 25 as 'Address' and reads non-empty values from it."
       ]
     },
     {
       "id": "REQ-2",
-      "text": "Ensure the backend data model stores `storedPktCount` as a separate field (alongside `normalPktCount`) in the report entry schema, and that the upsert function correctly persists the stored packet count submitted from the frontend parser.",
-      "target": "backend",
+      "text": "Audit the per-packet event log aggregation logic in csvParser.ts to ensure that total, stored, and valid packet counts are computed correctly from row aggregation after the Address column fix is applied. If the counts are still showing 'aggregated' placeholders rather than real numbers after fixing unit ID resolution, ensure the aggregation logic runs and populates numeric values before records are submitted to the backend.",
+      "target": "frontend",
       "source": {
         "messageIds": [
           "msg-1"
         ],
         "quotes": [
-          "Stored pkt count is given as 0"
+          "total='aggregated' stored='aggregated' valid='aggregated'"
         ]
       },
       "acceptanceCriteria": [
-        "The ReportEntry type in main.mo includes a `storedPktCount` field of type Nat.",
-        "The upsert function accepts and persists the `storedPktCount` value.",
-        "A migration is applied so existing entries without `storedPktCount` default to 0.",
-        "Querying stored reports returns the correct non-zero `storedPktCount` for records uploaded with Stored state packets."
+        "After importing a valid file, records show numeric values for total, stored, and valid packet counts.",
+        "The dashboard and report pages reflect the imported data with correct packet count figures."
       ]
     }
   ],
   "constraints": [
-    "Do not change the existing column layout or visual design of the Weekly Reports table.",
-    "Normal packet count parsing must remain unaffected.",
-    "Migration must be applied for existing backend state to avoid data loss."
+    "Do not change the backend schema or Motoko actor.",
+    "Do not modify any files under frontend/src/hooks/useInternetIdentity.ts, frontend/src/hooks/useActor.ts, frontend/src/main.tsx, or frontend/src/components/ui."
   ],
   "nonGoals": [
-    "Changing the report page UI layout or adding new columns.",
-    "Modifying how GPS Fix % or Valid GPS Pkts are computed.",
-    "Supporting any PktState values other than 'Normal' and 'Stored'."
+    "Adding new import file formats beyond CSV/XLS/XLSX.",
+    "Changing the column mapping UI or custom column selection behavior.",
+    "Modifying the backend upsert logic."
   ],
   "imageRequirements": {
     "required": [],

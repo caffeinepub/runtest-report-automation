@@ -105,13 +105,30 @@ export enum UnitModel {
     N135 = "N135"
 }
 export interface backendInterface {
+    addDisplayColumn(columnName: string): Promise<void>;
     getAllReports(): Promise<Array<ReportEntry>>;
+    getDisplayColumns(): Promise<Array<string>>;
     getReport(unitId: string, weekYear: string): Promise<ReportEntry | null>;
+    removeDisplayColumn(columnName: string): Promise<void>;
     upsertReport(unit: UnitModel, id: string, week: string, total: bigint, stored: bigint, valid: bigint, storedPkts: bigint, normalPkts: bigint): Promise<void>;
 }
 import type { ReportEntry as _ReportEntry, UnitModel as _UnitModel } from "./declarations/backend.did.d.ts";
 export class Backend implements backendInterface {
     constructor(private actor: ActorSubclass<_SERVICE>, private _uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, private _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, private processError?: (error: unknown) => never){}
+    async addDisplayColumn(arg0: string): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.addDisplayColumn(arg0);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.addDisplayColumn(arg0);
+            return result;
+        }
+    }
     async getAllReports(): Promise<Array<ReportEntry>> {
         if (this.processError) {
             try {
@@ -126,6 +143,20 @@ export class Backend implements backendInterface {
             return from_candid_vec_n1(this._uploadFile, this._downloadFile, result);
         }
     }
+    async getDisplayColumns(): Promise<Array<string>> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getDisplayColumns();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getDisplayColumns();
+            return result;
+        }
+    }
     async getReport(arg0: string, arg1: string): Promise<ReportEntry | null> {
         if (this.processError) {
             try {
@@ -138,6 +169,20 @@ export class Backend implements backendInterface {
         } else {
             const result = await this.actor.getReport(arg0, arg1);
             return from_candid_opt_n6(this._uploadFile, this._downloadFile, result);
+        }
+    }
+    async removeDisplayColumn(arg0: string): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.removeDisplayColumn(arg0);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.removeDisplayColumn(arg0);
+            return result;
         }
     }
     async upsertReport(arg0: UnitModel, arg1: string, arg2: string, arg3: bigint, arg4: bigint, arg5: bigint, arg6: bigint, arg7: bigint): Promise<void> {

@@ -1,18 +1,15 @@
 {
   "kind": "spec_vs_diff_report",
   "version": "1.0",
-  "generatedAt": "2026-02-26T14:41:12.689Z",
-  "summary": "Both REQ-1 and REQ-2 appear to be implemented. The frontend CSV parser now counts 'Stored' state rows and maps them to storedPkts, the backend ReportEntry type includes storedPktCount, the upsert function accepts and persists it, and a migration module is added to default existing entries to 0. No significant missing requirements or hallucinated features were found.",
+  "generatedAt": "2026-02-27T10:52:07.000Z",
+  "summary": "The diff implements fixes in frontend/src/utils/csvParser.ts and frontend/src/components/CSVImportSection.tsx that address both REQ-1 (Address column resolution) and REQ-2 (packet count aggregation). REQ-1 is addressed by adding findAddressColumnIndex(), findHwidColumnIndex(), resolveUnitId() helpers and expanding INVALID_UNIT_IDS. REQ-2 is addressed by adding resolvedSampleRecords to ParseDebugInfo so numeric counts are available. Both requirements appear substantially implemented.",
   "missing_requirements": [],
   "hallucinated_features": [],
-  "confidence": 0.88,
+  "confidence": 0.82,
   "changed_files": [
-    "backend/main.mo",
-    "backend/migration.mo",
     "frontend-file-summaries.txt",
     "frontend/src/components/CSVImportSection.tsx",
-    "frontend/src/components/DataEntryForm.tsx",
-    "frontend/src/hooks/useQueries.ts",
+    "frontend/src/utils/csvParser.ts",
     "project_state.json"
   ]
 }

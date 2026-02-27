@@ -24,8 +24,11 @@ export type UnitModel = { 'N13' : null } |
   { 'N125' : null } |
   { 'N135' : null };
 export interface _SERVICE {
+  'addDisplayColumn' : ActorMethod<[string], undefined>,
   'getAllReports' : ActorMethod<[], Array<ReportEntry>>,
+  'getDisplayColumns' : ActorMethod<[], Array<string>>,
   'getReport' : ActorMethod<[string, string], [] | [ReportEntry]>,
+  'removeDisplayColumn' : ActorMethod<[string], undefined>,
   'upsertReport' : ActorMethod<
     [UnitModel, string, string, bigint, bigint, bigint, bigint, bigint],
     undefined

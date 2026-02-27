@@ -1,13 +1,10 @@
 # Specification
 
 ## Summary
-**Goal:** Fix the CSV parser and backend data model so that the Stored packet count is correctly extracted from the `PktState` column and persisted, instead of always showing 0.
+**Goal:** Fix the CSV/XLS parser in the GPS Packet Tracker so that unit IDs are correctly resolved from the "Address" column in Waggle Portal export files, and ensure packet count aggregation produces real numeric values.
 
 **Planned changes:**
-- Fix the frontend CSV parser to count rows where `PktState` equals `"Stored"` and assign that count to `storedPkts` (currently always returns 0).
-- Ensure `normalPktCount` parsing remains unaffected; Normal + Stored counts should sum to Total packets hit.
-- Add `storedPktCount` as a separate field in the backend `ReportEntry` type.
-- Update the backend upsert function to accept and persist the `storedPktCount` value submitted from the frontend.
-- Apply a migration so existing backend entries without `storedPktCount` default to 0.
+- Fix the Address column lookup in `csvParser.ts` to scan the detected header row for the keyword "Address" (case-insensitive) and use that column index to read unit IDs, instead of emitting "Address not found" for every row.
+- Audit and fix the per-packet event log aggregation logic so that total, stored, and valid packet counts are computed as numeric values rather than remaining as "aggregated" placeholders after unit ID resolution is corrected.
 
-**User-visible outcome:** After uploading a file with a `PktState` column containing `"Normal"` and `"Stored"` rows, the STORED PKTS column in the Weekly Reports table will display the correct non-zero count instead of 0.
+**User-visible outcome:** Uploading a Waggle Portal XLS export no longer shows "Address not found" unit IDs, the "2648 rows will be skipped" warning is resolved, valid records are imported successfully, and the dashboard and reports reflect correct numeric packet count figures.

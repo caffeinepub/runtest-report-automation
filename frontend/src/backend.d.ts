@@ -23,7 +23,10 @@ export enum UnitModel {
     N135 = "N135"
 }
 export interface backendInterface {
+    addDisplayColumn(columnName: string): Promise<void>;
     getAllReports(): Promise<Array<ReportEntry>>;
+    getDisplayColumns(): Promise<Array<string>>;
     getReport(unitId: string, weekYear: string): Promise<ReportEntry | null>;
+    removeDisplayColumn(columnName: string): Promise<void>;
     upsertReport(unit: UnitModel, id: string, week: string, total: bigint, stored: bigint, valid: bigint, storedPkts: bigint, normalPkts: bigint): Promise<void>;
 }

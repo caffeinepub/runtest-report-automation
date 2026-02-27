@@ -1,116 +1,163 @@
-import { useState } from 'react';
-import { Activity, Package, MapPin, TrendingUp } from 'lucide-react';
-import { useGetAllReports, getISOWeekLabel, MODEL_LABELS, ALL_MODELS } from '@/hooks/useQueries';
-import { WeekNavigator } from '@/components/WeekNavigator';
-import { ModelSummaryCard } from '@/components/ModelSummaryCard';
-import { UnitModel } from '@/backend';
+import React from 'react';
+import { Card, CardContent } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Activity, Cpu, CheckCircle, HardDrive, Columns } from 'lucide-react';
+import { useGetAllReports, getISOWeekLabel } from '@/hooks/useQueries';
 import { filterValidEntries } from '@/utils/reportFilters';
+import { ModelSummaryCard } from '@/components/ModelSummaryCard';
+import { WeekNavigator } from '@/components/WeekNavigator';
+import { UnitModel } from '@/backend';
+import { useColumnMapping } from '@/hooks/useColumnMapping';
 
-export default function DashboardPage() {
+const DashboardPage: React.FC = () => {
+  const [currentWeek, setCurrentWeek] = React.useState(() => getISOWeekLabel());
   const { data: rawReports = [], isLoading } = useGetAllReports();
-  const [currentWeek, setCurrentWeek] = useState(getISOWeekLabel());
+  const { selectedColumns } = useColumnMapping();
 
-  // Apply the same validity filter as the report page
-  const reports = filterValidEntries(rawReports);
+  const allValid = filterValidEntries(rawReports);
+  const weekEntries = allValid.filter(e => e.weekYear === currentWeek);
 
-  // Derive available weeks from valid reports
-  const availableWeeks = Array.from(new Set(reports.map(r => r.weekYear))).sort();
+  const totalUnits = new Set(weekEntries.map(e => e.unitId)).size;
+  const totalPkts = weekEntries.reduce((s, e) => s + Number(e.totalPkts), 0);
+  const totalValid = weekEntries.reduce((s, e) => s + Number(e.validGpsFixPkts), 0);
+  const totalStored = weekEntries.reduce((s, e) => s + Number(e.storedPkts), 0);
 
-  // Auto-select the most recent available week if current week has no data
-  const effectiveWeek =
-    reports.some(r => r.weekYear === currentWeek)
-      ? currentWeek
-      : availableWeeks.length > 0
-        ? availableWeeks[availableWeeks.length - 1]
-        : currentWeek;
-
-  // Filter valid reports for the selected week
-  const weekReports = reports.filter(r => r.weekYear === effectiveWeek);
-
-  // Aggregate stats — count distinct unit IDs
-  const totalUnits = new Set(weekReports.map(r => r.unitId)).size;
-  const totalPackets = weekReports.reduce((s, r) => s + Number(r.totalPkts), 0);
-  const validGpsPkts = weekReports.reduce((s, r) => s + Number(r.validGpsFixPkts), 0);
-  const gpsFixRate = totalPackets > 0 ? ((validGpsPkts / totalPackets) * 100).toFixed(1) : '0.0';
+  const models = [UnitModel.N135, UnitModel.N13, UnitModel.N125];
 
   return (
     <div className="space-y-6">
-      {/* Page Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <img src="/assets/generated/gps-icon.dim_128x128.png" alt="GPS" className="w-12 h-12 rounded-lg opacity-90" />
-          <div>
-            <h1 className="text-2xl font-bold">Dashboard</h1>
-            <p className="text-muted-foreground text-sm">Weekly GPS unit performance overview</p>
-          </div>
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
+          <p className="text-sm text-muted-foreground mt-1">GPS tracker packet report overview</p>
         </div>
-        <WeekNavigator
-          currentWeek={effectiveWeek}
-          onWeekChange={setCurrentWeek}
-          availableWeeks={availableWeeks}
-        />
+        <WeekNavigator currentWeek={currentWeek} onWeekChange={setCurrentWeek} />
       </div>
 
-      {/* Stats Bar */}
-      {isLoading ? (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {[...Array(4)].map((_, i) => (
-            <div key={i} className="bg-navy-800 border border-navy-600 rounded-lg p-4 animate-pulse h-20" />
-          ))}
-        </div>
-      ) : (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <StatCard icon={<Activity size={18} />} label="Total Units" value={totalUnits} />
-          <StatCard icon={<Package size={18} />} label="Total Packets" value={totalPackets.toLocaleString()} />
-          <StatCard icon={<MapPin size={18} />} label="Valid GPS Pkts" value={validGpsPkts.toLocaleString()} />
-          <StatCard icon={<TrendingUp size={18} />} label="GPS Fix Rate" value={`${gpsFixRate}%`} />
-        </div>
+      {/* KPI cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <Card className="border-border/40 bg-card/60">
+          <CardContent className="pt-4 pb-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs text-muted-foreground">Total Units</p>
+                <p className="text-2xl font-bold text-foreground mt-1">
+                  {isLoading ? '—' : totalUnits}
+                </p>
+              </div>
+              <Cpu className="h-8 w-8 text-amber-400/60" />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-border/40 bg-card/60">
+          <CardContent className="pt-4 pb-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs text-muted-foreground">Total Packets</p>
+                <p className="text-2xl font-bold text-foreground mt-1">
+                  {isLoading ? '—' : totalPkts.toLocaleString()}
+                </p>
+              </div>
+              <Activity className="h-8 w-8 text-blue-400/60" />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-border/40 bg-card/60">
+          <CardContent className="pt-4 pb-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs text-muted-foreground">Valid GPS Fixes</p>
+                <p className="text-2xl font-bold text-foreground mt-1">
+                  {isLoading ? '—' : totalValid.toLocaleString()}
+                </p>
+              </div>
+              <CheckCircle className="h-8 w-8 text-green-400/60" />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-border/40 bg-card/60">
+          <CardContent className="pt-4 pb-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs text-muted-foreground">Stored Packets</p>
+                <p className="text-2xl font-bold text-foreground mt-1">
+                  {isLoading ? '—' : totalStored.toLocaleString()}
+                </p>
+              </div>
+              <HardDrive className="h-8 w-8 text-purple-400/60" />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Custom columns notice */}
+      {selectedColumns.length > 0 && (
+        <Card className="border-amber-500/20 bg-amber-500/5">
+          <CardContent className="pt-3 pb-3">
+            <div className="flex items-center gap-2 flex-wrap">
+              <Columns className="h-4 w-4 text-amber-400 shrink-0" />
+              <span className="text-xs text-amber-300 font-medium">
+                {selectedColumns.length} custom column{selectedColumns.length !== 1 ? 's' : ''} configured:
+              </span>
+              {selectedColumns.map(col => (
+                <Badge key={col} variant="outline" className="text-xs border-amber-500/30 text-amber-400/80 bg-amber-500/10">
+                  {col}
+                </Badge>
+              ))}
+              <span className="text-xs text-muted-foreground ml-1">
+                — visible in the Reports table
+              </span>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
-      {/* Model Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {ALL_MODELS.map((model: UnitModel) => (
-          <ModelSummaryCard
-            key={model}
-            model={model}
-            entries={weekReports.filter(r => r.unitModel === model)}
-          />
-        ))}
-      </div>
-
-      {/* Available Weeks */}
-      {availableWeeks.length > 0 && (
-        <div className="bg-navy-800 border border-navy-600 rounded-lg p-4">
-          <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-3">Available Weeks</h3>
-          <div className="flex flex-wrap gap-2">
-            {availableWeeks.map(week => (
-              <button
-                key={week}
-                onClick={() => setCurrentWeek(week)}
-                className={`px-3 py-1 rounded text-xs font-mono font-medium transition-colors ${
-                  week === effectiveWeek
-                    ? 'bg-amber-400 text-navy-950'
-                    : 'bg-navy-700 text-muted-foreground hover:bg-navy-600 hover:text-foreground'
-                }`}
-              >
-                {week}
-              </button>
+      {/* Per-model breakdown */}
+      <div>
+        <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+          By Model — {currentWeek}
+        </h2>
+        {isLoading ? (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {[1, 2, 3].map(i => (
+              <Card key={i} className="border-border/40 bg-card/60 animate-pulse">
+                <CardContent className="pt-6 pb-6">
+                  <div className="h-16 bg-muted/40 rounded" />
+                </CardContent>
+              </Card>
             ))}
           </div>
-        </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {models.map(model => (
+              <ModelSummaryCard
+                key={model}
+                model={model}
+                entries={weekEntries}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Empty state */}
+      {!isLoading && weekEntries.length === 0 && (
+        <Card className="border-border/40 bg-card/60">
+          <CardContent className="py-12 text-center">
+            <Activity className="h-12 w-12 mx-auto text-muted-foreground/40 mb-3" />
+            <p className="text-sm text-muted-foreground">No data for {currentWeek}</p>
+            <p className="text-xs text-muted-foreground/60 mt-1">
+              Import a file or enter data manually on the Data Entry page.
+            </p>
+          </CardContent>
+        </Card>
       )}
     </div>
   );
-}
+};
 
-function StatCard({ icon, label, value }: { icon: React.ReactNode; label: string; value: string | number }) {
-  return (
-    <div className="bg-navy-800 border border-navy-600 rounded-lg p-4 flex items-center gap-3">
-      <div className="text-amber-400">{icon}</div>
-      <div>
-        <div className="text-xl font-bold">{value}</div>
-        <div className="text-xs text-muted-foreground">{label}</div>
-      </div>
-    </div>
-  );
-}
+export default DashboardPage;

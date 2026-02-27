@@ -25,12 +25,15 @@ export const ReportEntry = IDL.Record({
 });
 
 export const idlService = IDL.Service({
+  'addDisplayColumn' : IDL.Func([IDL.Text], [], []),
   'getAllReports' : IDL.Func([], [IDL.Vec(ReportEntry)], ['query']),
+  'getDisplayColumns' : IDL.Func([], [IDL.Vec(IDL.Text)], ['query']),
   'getReport' : IDL.Func(
       [IDL.Text, IDL.Text],
       [IDL.Opt(ReportEntry)],
       ['query'],
     ),
+  'removeDisplayColumn' : IDL.Func([IDL.Text], [], []),
   'upsertReport' : IDL.Func(
       [
         UnitModel,
@@ -67,12 +70,15 @@ export const idlFactory = ({ IDL }) => {
   });
   
   return IDL.Service({
+    'addDisplayColumn' : IDL.Func([IDL.Text], [], []),
     'getAllReports' : IDL.Func([], [IDL.Vec(ReportEntry)], ['query']),
+    'getDisplayColumns' : IDL.Func([], [IDL.Vec(IDL.Text)], ['query']),
     'getReport' : IDL.Func(
         [IDL.Text, IDL.Text],
         [IDL.Opt(ReportEntry)],
         ['query'],
       ),
+    'removeDisplayColumn' : IDL.Func([IDL.Text], [], []),
     'upsertReport' : IDL.Func(
         [
           UnitModel,

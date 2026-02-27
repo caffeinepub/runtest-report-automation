@@ -1,27 +1,48 @@
 {
   "kind": "implementation_plan",
   "version": "1.0",
-  "title": "Fix Stored Packet Count Parsing from PktState Column",
+  "title": "Fix CSV/XLS unit ID resolution — Address column not found",
   "requirements": [
     {
       "id": "REQ-1",
-      "summary": "Fix CSV parser to correctly extract Stored packet count from the PktState column by counting rows where PktState equals 'Stored', and update the import section to submit the parsed storedPkts value to the backend",
+      "summary": "Fix CSV/XLS parser to correctly resolve unit IDs from the 'Address' column in Waggle Portal export files by scanning the detected header row for the 'Address' keyword (case-insensitive) and using that column index to read each row's unit ID instead of failing with 'Address not found'.",
       "acceptanceCriteria": [
-        "When a file is uploaded with a 'PktState' column containing 'Normal' and 'Stored' values, the parser correctly counts rows where PktState is 'Stored' and assigns that value to storedPkts.",
-        "The STORED PKTS column in the Weekly Reports table shows non-zero values matching the actual count of 'Stored' state packets from the uploaded file.",
-        "Normal + Stored packet counts sum to equal the Total packets hit count.",
-        "Existing Normal packet count parsing remains correct and unaffected."
+        "Uploading the Waggle Portal XLS file no longer produces 'Address not found' unit IDs.",
+        "The debug panel shows actual unit ID values (e.g. device serial numbers) for the first 3 sample rows.",
+        "The '2648 rows will be skipped due to missing or invalid unit IDs' warning is resolved and valid records are found.",
+        "The 'No valid records found in the file' error message is no longer shown when a valid Waggle Portal export is imported.",
+        "Column mapping in the debug panel correctly identifies col 25 as 'Address' and reads non-empty values from it."
       ],
       "file_operations": [
         {
           "path": "frontend/src/utils/csvParser.ts",
           "operation": "modify",
-          "description": "Update the parseCSV function to count rows where PktState column equals 'Stored' (case-insensitive) and assign that count to the storedPkts field in the parsed output. Currently storedPkts is always set to totalPkts (which is incorrect). The correct logic is: count rows where row[pktStateCol] === 'Stored' and set that as storedPkts. Ensure normalPkts continues to count rows where PktState is 'Normal', and that totalPkts represents the total row count (Normal + Stored)."
+          "description": "Fix the Address column detection logic in the parsePerPacketEventLog function. Instead of relying on hardcoded column indices or incomplete header scanning, implement a robust case-insensitive search through the detected header row to find the column labeled 'Address'. Store the found column index and use it consistently when extracting unit IDs from data rows. Ensure that when the Address column is found, the unitId is read from the correct column in each row rather than returning 'Address not found'. Verify this change resolves the issue where col 25 is mapped but unit IDs are not extracted."
         },
         {
           "path": "frontend/src/components/CSVImportSection.tsx",
           "operation": "modify",
-          "description": "Update the handleImport function to pass the parsed storedPkts value (in addition to the existing normalPkts) when calling upsertReport. Currently the function may not be passing storedPkts correctly to the backend. Verify that both storedPkts and normalPkts are included in the upsertReport call parameters and match the backend interface signature (unit, id, week, total, stored, valid, storedPkts, normalPkts)."
+          "description": "Update the debug panel rendering logic to display the actual unit ID values extracted from the Address column for the first 3 sample rows. Ensure the debug output reflects the corrected unitId values (e.g., device serial numbers) rather than 'Address not found' placeholders. Add validation checks to confirm that valid unit IDs are present before showing the 'No valid records found' error message, and adjust skip warnings to reflect accurate counts of records with missing or invalid unit IDs."
+        }
+      ]
+    },
+    {
+      "id": "REQ-2",
+      "summary": "Audit the per-packet event log aggregation logic to ensure total, stored, and valid packet counts are computed correctly from row aggregation and populated as numeric values before records are submitted to the backend.",
+      "acceptanceCriteria": [
+        "After importing a valid file, records show numeric values for total, stored, and valid packet counts.",
+        "The dashboard and report pages reflect the imported data with correct packet count figures."
+      ],
+      "file_operations": [
+        {
+          "path": "frontend/src/utils/csvParser.ts",
+          "operation": "modify",
+          "description": "Review and fix the aggregation logic in parsePerPacketEventLog that computes total, stored, and valid packet counts. Ensure that after Address column resolution, the aggregation step runs correctly and replaces 'aggregated' placeholders with actual numeric sums before returning the parsed records. Verify that packet state and GPS status parsing correctly contribute to the count totals, and that all numeric fields (totalPkts, storedPkts, validGpsFixPkts) are properly populated with non-placeholder values."
+        },
+        {
+          "path": "frontend/src/components/CSVImportSection.tsx",
+          "operation": "modify",
+          "description": "After the csvParser returns parsed records, verify that the total, stored, and valid packet count fields contain numeric values (not 'aggregated' strings) before passing them to the backend upsert mutation. Add a validation or transform step if necessary to ensure numeric types are enforced, and update the debug panel to display these numeric counts for the first 3 sample rows so the user can confirm correct aggregation."
         }
       ]
     }

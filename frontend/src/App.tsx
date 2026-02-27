@@ -2,7 +2,7 @@ import { RouterProvider, createRouter, createRoute, createRootRoute, Outlet } fr
 import { Toaster } from '@/components/ui/sonner';
 import { Layout } from '@/components/Layout';
 import DashboardPage from '@/pages/DashboardPage';
-import { DataEntryPage } from '@/pages/DataEntryPage';
+import DataEntryPage from '@/pages/DataEntryPage';
 import ReportPage from '@/pages/ReportPage';
 
 // Root route with layout

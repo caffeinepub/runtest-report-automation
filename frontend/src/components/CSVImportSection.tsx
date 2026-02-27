@@ -1,278 +1,172 @@
-import React, { useState, useRef } from 'react';
-import { Upload, FileText, X, CheckCircle, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react';
+import React, { useState, useRef, useCallback } from 'react';
+import { Upload, FileText, AlertCircle, CheckCircle, ChevronDown, ChevronUp, Settings2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { toast } from 'sonner';
-import { useDirectUpsert, getISOWeekLabel } from '@/hooks/useQueries';
-import { parseCSVFile, ParseResult, ParsedRow } from '@/utils/csvParser';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { useDirectUpsert } from '@/hooks/useQueries';
+import { parseCSVData, parseXLSData, ParseResult } from '@/utils/csvParser';
 import { UnitModel } from '@/backend';
+import ColumnMappingSelector from './ColumnMappingSelector';
 
-interface ParsedFileEntry {
-  fileName: string;
-  result: ParseResult;
+interface CSVImportSectionProps {
+  selectedWeek: string;
 }
 
-const MODEL_OPTIONS: UnitModel[] = [UnitModel.N135, UnitModel.N13, UnitModel.N125];
-
-/**
- * Detect IC0508 "Canister is stopped" errors from the Internet Computer.
- * These appear as rejection objects with reject_code 5 or error_code IC0508,
- * or as stringified JSON containing those patterns.
- */
-function isCanisterStoppedError(err: unknown): boolean {
-  if (!err) return false;
-
-  // Check if the error object has IC-specific rejection fields
-  if (typeof err === 'object') {
-    const e = err as Record<string, unknown>;
-    // Direct rejection object
-    if (e.reject_code === 5 || e.error_code === 'IC0508') return true;
-    // Nested body object
-    if (e.body && typeof e.body === 'object') {
-      const body = e.body as Record<string, unknown>;
-      if (body.reject_code === 5 || body.error_code === 'IC0508') return true;
-      if (typeof body.status === 'string' && body.status === 'non_replicated_rejection') return true;
-    }
-    // Check message string
-    if (typeof e.message === 'string') {
-      const msg = e.message;
-      if (
-        msg.includes('IC0508') ||
-        msg.includes('non_replicated_rejection') ||
-        (msg.includes('Canister') && msg.includes('stopped')) ||
-        (msg.includes('reject_code') && msg.includes('5'))
-      ) return true;
-    }
-  }
-
-  // Check stringified error
-  const str = String(err);
-  if (
-    str.includes('IC0508') ||
-    str.includes('non_replicated_rejection') ||
-    (str.includes('Canister') && str.includes('stopped')) ||
-    (str.includes('reject_code') && str.includes('"5"')) ||
-    (str.includes('"reject_code":5') || str.includes('"reject_code": 5'))
-  ) return true;
-
-  return false;
+function detectUnitModel(unitId: string): UnitModel {
+  const upper = unitId.toUpperCase();
+  if (upper.includes('N135') || upper.includes('N13-5')) return UnitModel.N135;
+  if (upper.includes('N125') || upper.includes('N12-5')) return UnitModel.N125;
+  return UnitModel.N13;
 }
 
-/**
- * Return a clean, human-readable error reason for display.
- * Never exposes raw JSON to the user.
- */
-function getReadableErrorReason(err: unknown): { reason: string; isCanisterStopped: boolean } {
-  if (isCanisterStoppedError(err)) {
-    return {
-      reason: 'backend service is currently stopped',
-      isCanisterStopped: true,
-    };
-  }
-
-  if (err instanceof Error) {
-    // Strip any JSON blobs from the message
-    const clean = err.message.replace(/\{[\s\S]*\}/g, '').trim();
-    return { reason: clean || 'unknown error', isCanisterStopped: false };
-  }
-
-  return { reason: 'unknown error', isCanisterStopped: false };
-}
-
-export default function CSVImportSection() {
-  const [parsedFiles, setParsedFiles] = useState<ParsedFileEntry[]>([]);
+const CSVImportSection: React.FC<CSVImportSectionProps> = ({ selectedWeek }) => {
   const [isDragging, setIsDragging] = useState(false);
-  const [expandedFiles, setExpandedFiles] = useState<Set<number>>(new Set());
-  const [defaultModel, setDefaultModel] = useState<UnitModel>(UnitModel.N135);
-  // Pre-populate with the current ISO week so imports work without manual entry
-  const [defaultWeek, setDefaultWeek] = useState<string>(() => getISOWeekLabel());
-  const [isImporting, setIsImporting] = useState(false);
+  const [parseResult, setParseResult] = useState<ParseResult | null>(null);
+  const [importStatus, setImportStatus] = useState<'idle' | 'importing' | 'success' | 'error'>('idle');
+  const [importError, setImportError] = useState<string>('');
+  const [importedCount, setImportedCount] = useState(0);
+  const [skippedCount, setSkippedCount] = useState(0);
+  const [debugOpen, setDebugOpen] = useState(false);
+  const [columnMappingOpen, setColumnMappingOpen] = useState(false);
+  const [currentFilename, setCurrentFilename] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+
   const { upsertOne, invalidate } = useDirectUpsert();
 
-  const handleFiles = async (files: FileList | File[]) => {
-    const fileArray = Array.from(files);
-    const results: ParsedFileEntry[] = [];
-
-    for (const file of fileArray) {
-      try {
-        const result = await parseCSVFile(file);
-        results.push({ fileName: file.name, result });
-      } catch (err) {
-        toast.error(`Failed to parse ${file.name}: ${err instanceof Error ? err.message : String(err)}`);
-      }
-    }
-
-    if (results.length > 0) {
-      setParsedFiles(prev => [...prev, ...results]);
-    }
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-    handleFiles(e.dataTransfer.files);
-  };
-
-  const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) handleFiles(e.target.files);
-  };
-
-  const removeFile = (index: number) => {
-    setParsedFiles(prev => prev.filter((_, i) => i !== index));
-  };
-
-  const toggleExpand = (index: number) => {
-    setExpandedFiles(prev => {
-      const next = new Set(prev);
-      if (next.has(index)) next.delete(index);
-      else next.add(index);
-      return next;
-    });
-  };
-
-  // Resolve model string to UnitModel enum
-  const resolveModel = (modelStr: string | undefined): UnitModel => {
-    const n = (modelStr ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-    if (n.includes('135')) return UnitModel.N135;
-    if (n.includes('125')) return UnitModel.N125;
-    if (n.includes('13')) return UnitModel.N13;
-    return defaultModel;
-  };
-
-  /**
-   * Extract the unit ID exclusively from the filename stem.
-   * This is the single source of truth — file content is never used for unit ID.
-   */
-  const getUnitIdFromFileName = (fileName: string): string => {
-    return fileName.replace(/\.[^.]+$/, '');
-  };
-
-  const handleImport = async () => {
-    if (parsedFiles.length === 0) return;
-
-    setIsImporting(true);
-    let successCount = 0;
-    const failures: Array<{ id: string; week: string; reason: string; isCanisterStopped: boolean }> = [];
+  const processFile = useCallback(async (file: File) => {
+    setImportStatus('idle');
+    setImportError('');
+    setParseResult(null);
+    setCurrentFilename(file.name);
 
     try {
-      const allRecords: Array<{
-        unit: UnitModel;
-        id: string;
-        week: string;
-        total: bigint;
-        normalPkts: bigint;
-        storedPkts: bigint;
-        stored: bigint;
-        valid: bigint;
-        fileName: string;
-      }> = [];
+      let result: ParseResult;
 
-      // Build the list of records to upsert from all parsed files
-      for (const { fileName, result } of parsedFiles) {
-        if (result.errors.length > 0 || result.rows.length === 0) continue;
-
-        // Unit ID is always derived from the filename — never from row content
-        const unitId = getUnitIdFromFileName(fileName);
-
-        for (const row of result.rows) {
-          const model = resolveModel(row.model);
-          const week = result.weekYear || defaultWeek;
-
-          allRecords.push({
-            unit: model,
-            id: unitId,
-            week,
-            total: BigInt(row.totalPkts),
-            normalPkts: BigInt(row.normalPktCount ?? 0),
-            // storedPkts = the dedicated storedPktCount field (7th backend param)
-            storedPkts: BigInt(row.storedPkts),
-            // stored = legacy storedPkts field (5th backend param), same value
-            stored: BigInt(row.storedPkts),
-            valid: BigInt(row.validGpsFixPkts),
-            fileName,
-          });
+      if (file.name.toLowerCase().endsWith('.csv')) {
+        const text = await file.text();
+        result = parseCSVData(text, file.name);
+      } else if (
+        file.name.toLowerCase().endsWith('.xls') ||
+        file.name.toLowerCase().endsWith('.xlsx')
+      ) {
+        const XLSX = (window as unknown as { XLSX: { read: (data: ArrayBuffer, opts: unknown) => unknown } }).XLSX;
+        if (!XLSX) {
+          throw new Error('SheetJS library not loaded. Please refresh the page and try again.');
         }
-      }
-
-      // Upsert all records, collecting failures
-      for (const record of allRecords) {
-        try {
-          await upsertOne({
-            unit: record.unit,
-            id: record.id,
-            week: record.week,
-            total: record.total,
-            stored: record.stored,
-            valid: record.valid,
-            storedPkts: record.storedPkts,
-            normalPkts: record.normalPkts,
-          });
-          successCount++;
-        } catch (err) {
-          const { reason, isCanisterStopped } = getReadableErrorReason(err);
-          failures.push({ id: record.id, week: record.week, reason, isCanisterStopped });
-        }
-      }
-
-      // Invalidate queries after all upserts
-      if (successCount > 0) {
-        invalidate();
-      }
-
-      // Emit a single consolidated summary toast
-      if (failures.length === 0 && successCount > 0) {
-        toast.success(`Successfully imported ${successCount} unit record${successCount !== 1 ? 's' : ''}`);
-        setParsedFiles([]);
-      } else if (failures.length > 0 && successCount > 0) {
-        const canisterStopped = failures.some(f => f.isCanisterStopped);
-        if (canisterStopped) {
-          toast.error(
-            `Imported ${successCount} record${successCount !== 1 ? 's' : ''}, but ${failures.length} failed because the backend service is currently stopped. Please try again later.`
-          );
-        } else {
-          toast.error(
-            `Imported ${successCount} record${successCount !== 1 ? 's' : ''}, but ${failures.length} failed. Check the console for details.`
-          );
-        }
-        setParsedFiles([]);
-      } else if (failures.length > 0 && successCount === 0) {
-        const canisterStopped = failures.some(f => f.isCanisterStopped);
-        if (canisterStopped) {
-          toast.error('Import failed: the backend service is currently stopped. Please try again later.');
-        } else {
-          toast.error(`All ${failures.length} record${failures.length !== 1 ? 's' : ''} failed to import. Check the console for details.`);
-        }
+        const buffer = await file.arrayBuffer();
+        const workbook = XLSX.read(buffer, { type: 'array' });
+        result = parseXLSData(workbook, file.name);
       } else {
-        toast.warning('No records were found to import. Check that your files have valid data.');
+        throw new Error('Unsupported file type. Please upload a CSV, XLS, or XLSX file.');
       }
-    } finally {
-      setIsImporting(false);
-    }
-  };
 
-  const totalRecords = parsedFiles.reduce((sum, f) => sum + f.result.rows.length, 0);
-  const hasErrors = parsedFiles.some(f => f.result.errors.length > 0);
+      setParseResult(result);
+      setDebugOpen(true);
+
+      // Auto-open column mapping if columns are available
+      if (result.debug.allColumnHeaders.length > 0) {
+        setColumnMappingOpen(true);
+      }
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : 'Failed to parse file');
+      setImportStatus('error');
+    }
+  }, []);
+
+  const handleImport = useCallback(async () => {
+    if (!parseResult || parseResult.records.length === 0) return;
+
+    setImportStatus('importing');
+    setImportError('');
+
+    // All records from the parser are already validated — they passed isValidUnitId
+    const validRecords = parseResult.records.filter(
+      r => r.unitId && r.unitId.trim() !== ''
+    );
+
+    if (validRecords.length === 0) {
+      setImportError('No valid records found. All rows had missing or invalid unit IDs.');
+      setImportStatus('error');
+      return;
+    }
+
+    let successCount = 0;
+    let errorCount = 0;
+    const errors: string[] = [];
+
+    for (const record of validRecords) {
+      try {
+        const unitModel = detectUnitModel(record.unitId);
+        const weekYear = record.weekYear || selectedWeek;
+
+        await upsertOne({
+          unit: unitModel,
+          id: record.unitId,
+          week: weekYear,
+          total: BigInt(Math.max(0, record.totalPkts)),
+          stored: BigInt(Math.max(0, record.storedPkts)),
+          valid: BigInt(Math.max(0, record.validGpsFixPkts)),
+          storedPkts: BigInt(Math.max(0, record.storedPktCount)),
+          normalPkts: BigInt(Math.max(0, record.normalPktCount)),
+        });
+
+        successCount++;
+      } catch (err) {
+        errorCount++;
+        const msg = err instanceof Error ? err.message : String(err);
+        if (errors.length < 3) errors.push(`${record.unitId}: ${msg}`);
+      }
+    }
+
+    // Invalidate queries after all upserts
+    invalidate();
+
+    setImportedCount(successCount);
+    setSkippedCount(parseResult.skippedRows + errorCount);
+
+    if (successCount > 0) {
+      setImportStatus('success');
+    } else {
+      setImportStatus('error');
+      setImportError(
+        `Import failed for all records. ${errors.join('; ')}`
+      );
+    }
+  }, [parseResult, selectedWeek, upsertOne, invalidate]);
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      setIsDragging(false);
+      const file = e.dataTransfer.files[0];
+      if (file) processFile(file);
+    },
+    [processFile]
+  );
+
+  const handleFileChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (file) processFile(file);
+      // Reset input so same file can be re-uploaded
+      e.target.value = '';
+    },
+    [processFile]
+  );
+
+  const handleReset = () => {
+    setParseResult(null);
+    setImportStatus('idle');
+    setImportError('');
+    setImportedCount(0);
+    setSkippedCount(0);
+    setDebugOpen(false);
+    setColumnMappingOpen(false);
+    setCurrentFilename('');
+  };
 
   return (
     <div className="space-y-4">
-      {/* Week override input */}
-      <div className="flex items-center gap-3 p-3 bg-card border border-border rounded-lg">
-        <span className="text-xs text-muted-foreground uppercase tracking-wide font-medium whitespace-nowrap">
-          Default Week
-        </span>
-        <input
-          type="text"
-          value={defaultWeek}
-          onChange={e => setDefaultWeek(e.target.value)}
-          placeholder="e.g. 2024-W12"
-          className="flex-1 h-8 px-3 bg-secondary border border-border rounded font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-        />
-        <span className="text-xs text-muted-foreground">
-          Used when week cannot be detected from file
-        </span>
-      </div>
-
       {/* Drop zone */}
       <div
         onDragOver={e => { e.preventDefault(); setIsDragging(true); }}
@@ -280,134 +174,279 @@ export default function CSVImportSection() {
         onDrop={handleDrop}
         onClick={() => fileInputRef.current?.click()}
         className={`
-          border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors
+          border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-all
           ${isDragging
-            ? 'border-primary bg-primary/10'
-            : 'border-border hover:border-primary/50 hover:bg-secondary/30'
+            ? 'border-amber-400 bg-amber-500/10'
+            : 'border-border/50 hover:border-amber-400/60 hover:bg-muted/30'
           }
         `}
       >
         <input
           ref={fileInputRef}
           type="file"
-          accept=".csv,.tsv,.xls,.xlsx"
-          multiple
-          onChange={handleFileInput}
+          accept=".csv,.xls,.xlsx"
           className="hidden"
+          onChange={handleFileChange}
         />
-        <Upload className="w-8 h-8 mx-auto mb-3 text-muted-foreground" />
-        <p className="text-sm font-medium text-foreground">Drop files here or click to browse</p>
-        <p className="text-xs text-muted-foreground mt-1">Supports CSV, TSV, XLS, XLSX (Waggle portal exports)</p>
+        <Upload className="h-8 w-8 mx-auto mb-3 text-muted-foreground" />
+        <p className="text-sm font-medium text-foreground">
+          Drop CSV / XLS / XLSX file here
+        </p>
+        <p className="text-xs text-muted-foreground mt-1">
+          or click to browse
+        </p>
+        {currentFilename && (
+          <p className="text-xs text-amber-400 mt-2 font-mono">
+            📄 {currentFilename}
+          </p>
+        )}
       </div>
 
-      {/* Parsed files list */}
-      {parsedFiles.length > 0 && (
-        <div className="space-y-2">
-          {parsedFiles.map((entry, index) => {
-            const isExpanded = expandedFiles.has(index);
-            const hasFileErrors = entry.result.errors.length > 0;
-            const rowCount = entry.result.rows.length;
+      {/* Error alert */}
+      {importStatus === 'error' && importError && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription className="text-xs break-all">{importError}</AlertDescription>
+        </Alert>
+      )}
 
-            return (
-              <div key={index} className="border border-border rounded-lg overflow-hidden">
-                <div className="flex items-center gap-3 px-4 py-3 bg-secondary/30">
-                  <FileText className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-                  <span className="text-sm font-mono font-medium flex-1 truncate">{entry.fileName}</span>
+      {/* Success alert */}
+      {importStatus === 'success' && (
+        <Alert className="border-green-500/30 bg-green-500/10">
+          <CheckCircle className="h-4 w-4 text-green-400" />
+          <AlertDescription className="text-green-300 text-xs">
+            Successfully imported {importedCount} record{importedCount !== 1 ? 's' : ''}.
+            {skippedCount > 0 && ` ${skippedCount} row${skippedCount !== 1 ? 's' : ''} skipped (invalid/missing unit ID).`}
+          </AlertDescription>
+        </Alert>
+      )}
 
-                  {hasFileErrors ? (
-                    <Badge className="bg-destructive/20 text-destructive border-destructive/30 text-xs gap-1">
-                      <AlertCircle className="w-3 h-3" />
-                      Error
-                    </Badge>
-                  ) : (
-                    <Badge className="bg-green-500/20 text-green-400 border-green-500/30 text-xs gap-1">
-                      <CheckCircle className="w-3 h-3" />
-                      {rowCount} record{rowCount !== 1 ? 's' : ''}
-                    </Badge>
-                  )}
+      {/* Skipped rows warning */}
+      {parseResult && parseResult.skippedRows > 0 && importStatus !== 'success' && (
+        <Alert className="border-amber-500/30 bg-amber-500/10">
+          <AlertCircle className="h-4 w-4 text-amber-400" />
+          <AlertDescription className="text-amber-300 text-xs">
+            {parseResult.skippedRows} row{parseResult.skippedRows !== 1 ? 's' : ''} will be skipped due to missing or invalid unit IDs.
+          </AlertDescription>
+        </Alert>
+      )}
 
-                  {entry.result.weekYear && (
-                    <Badge variant="outline" className="font-mono text-xs border-primary/30 text-primary">
-                      {entry.result.weekYear}
-                    </Badge>
-                  )}
-
-                  <button
-                    onClick={() => toggleExpand(index)}
-                    className="text-muted-foreground hover:text-foreground transition-colors"
-                  >
-                    {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                  </button>
-
-                  <button
-                    onClick={() => removeFile(index)}
-                    className="text-muted-foreground hover:text-destructive transition-colors"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-
-                {isExpanded && (
-                  <div className="px-4 py-3 border-t border-border bg-card text-xs space-y-2">
-                    {hasFileErrors ? (
-                      <div className="space-y-1">
-                        {entry.result.errors.map((err, i) => (
-                          <p key={i} className="text-destructive">{err}</p>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="space-y-1">
-                        {entry.result.gatewayName && (
-                          <p className="text-muted-foreground">Gateway: <span className="text-foreground font-mono">{entry.result.gatewayName}</span></p>
-                        )}
-                        {entry.result.startDate && (
-                          <p className="text-muted-foreground">Period: <span className="text-foreground font-mono">{entry.result.startDate}{entry.result.endDate ? ` → ${entry.result.endDate}` : ''}</span></p>
-                        )}
-                        {entry.result.rows.map((row: ParsedRow, i: number) => (
-                          <div key={i} className="font-mono text-foreground">
-                            <span className="text-primary">{row.unitId}</span>
-                            {' · '}Total: {row.totalPkts}
-                            {' · '}Normal: {row.normalPktCount ?? 0}
-                            {' · '}Stored: {row.storedPkts}
-                            {' · '}Valid GPS: {row.validGpsFixPkts}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+      {/* Parse result summary + import button */}
+      {parseResult && parseResult.records.length > 0 && importStatus !== 'success' && (
+        <div className="bg-muted/30 border border-border/40 rounded-lg p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <FileText className="h-4 w-4 text-amber-400" />
+              <span className="text-sm font-medium text-foreground">
+                {parseResult.records.length} unit{parseResult.records.length !== 1 ? 's' : ''} detected
+              </span>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={handleReset} className="h-8 text-xs">
+                Clear
+              </Button>
+              <Button
+                size="sm"
+                onClick={handleImport}
+                disabled={importStatus === 'importing'}
+                className="h-8 text-xs bg-amber-500 hover:bg-amber-600 text-navy-950"
+              >
+                {importStatus === 'importing' ? (
+                  <span className="flex items-center gap-1">
+                    <span className="animate-spin h-3 w-3 border border-current border-t-transparent rounded-full" />
+                    Importing…
+                  </span>
+                ) : (
+                  `Import ${parseResult.records.length} Record${parseResult.records.length !== 1 ? 's' : ''}`
                 )}
-              </div>
-            );
-          })}
+              </Button>
+            </div>
+          </div>
+
+          {/* Unit list preview */}
+          <div className="flex flex-wrap gap-1">
+            {parseResult.records.slice(0, 8).map(r => (
+              <span
+                key={r.unitId}
+                className="text-xs font-mono bg-navy-800/60 border border-border/30 rounded px-2 py-0.5 text-amber-300"
+              >
+                {r.unitId}
+              </span>
+            ))}
+            {parseResult.records.length > 8 && (
+              <span className="text-xs text-muted-foreground px-2 py-0.5">
+                +{parseResult.records.length - 8} more
+              </span>
+            )}
+          </div>
         </div>
       )}
 
-      {/* Import button */}
-      {parsedFiles.length > 0 && (
-        <div className="flex items-center justify-between">
-          <p className="text-sm text-muted-foreground">
-            {totalRecords} record{totalRecords !== 1 ? 's' : ''} ready to import
-            {hasErrors && <span className="text-destructive ml-2">(some files have errors)</span>}
-          </p>
-          <Button
-            onClick={handleImport}
-            disabled={isImporting || totalRecords === 0}
-            className="bg-primary text-primary-foreground hover:bg-primary/90 gap-2"
-          >
-            {isImporting ? (
-              <>
-                <Upload className="w-4 h-4 animate-pulse" />
-                Importing...
-              </>
-            ) : (
-              <>
-                <Upload className="w-4 h-4" />
-                Import {totalRecords} Record{totalRecords !== 1 ? 's' : ''}
-              </>
-            )}
-          </Button>
-        </div>
+      {/* No records found */}
+      {parseResult && parseResult.records.length === 0 && importStatus !== 'error' && (
+        <Alert className="border-amber-500/30 bg-amber-500/10">
+          <AlertCircle className="h-4 w-4 text-amber-400" />
+          <AlertDescription className="text-amber-300 text-xs">
+            No valid records found in the file. Check the debug panel below for details.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {/* Debug panel */}
+      {parseResult && (
+        <Collapsible open={debugOpen} onOpenChange={setDebugOpen}>
+          <CollapsibleTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full justify-between text-xs text-muted-foreground hover:text-foreground h-8 border border-border/30 rounded"
+            >
+              <span className="flex items-center gap-1">
+                <Settings2 className="h-3 w-3" />
+                Debug Info — click to inspect raw file data
+              </span>
+              {debugOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+            </Button>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <div className="mt-2 bg-navy-950/80 border border-border/30 rounded-lg p-4 font-mono text-xs space-y-3 overflow-x-auto">
+              <div>
+                <span className="text-muted-foreground">Strategy Used:</span>
+                <br />
+                <span className="text-green-400">{parseResult.debug.strategy}</span>
+              </div>
+
+              {parseResult.debug.isPerPacketFormat && (
+                <div className="bg-blue-500/10 border border-blue-500/30 rounded p-2 text-blue-300">
+                  <strong>Per-Packet Event Log Format:</strong> Each row = one GPS packet event.
+                  Total / Stored / Valid counts are computed by row aggregation, not read from columns.
+                  Unit ID source: <strong>{parseResult.debug.unitIdSource}</strong>
+                </div>
+              )}
+
+              <div>
+                <span className="text-muted-foreground">
+                  Detected Header Row (index {parseResult.debug.headerRowIndex}):
+                </span>
+                <br />
+                <span className="text-foreground/80 break-all">
+                  {parseResult.debug.headers.map((h, i) => (
+                    <span
+                      key={i}
+                      className={
+                        h.toLowerCase() === 'address'
+                          ? 'text-amber-300 font-bold'
+                          : h.toLowerCase() === 'pktstate' || h.toLowerCase() === 'pkt state'
+                          ? 'text-cyan-300 font-bold'
+                          : ''
+                      }
+                    >
+                      [{i}] {h}{' '}
+                    </span>
+                  ))}
+                </span>
+              </div>
+
+              <div>
+                <span className="text-muted-foreground">Column Mapping:</span>
+                <div className="grid grid-cols-2 gap-x-8 mt-1">
+                  {Object.entries(parseResult.debug.columnMapping).map(([key, val]) => (
+                    <div key={key} className="flex gap-2">
+                      <span className="text-muted-foreground w-16">{key}:</span>
+                      <span
+                        className={
+                          val.includes('not found')
+                            ? 'text-red-400'
+                            : val.includes('aggregation')
+                            ? 'text-blue-400'
+                            : 'text-green-400'
+                        }
+                      >
+                        {val}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Resolved aggregated records (first 3) */}
+              {parseResult.debug.resolvedSampleRecords.length > 0 && (
+                <div>
+                  <span className="text-muted-foreground">
+                    Resolved Records (first {parseResult.debug.resolvedSampleRecords.length} aggregated units):
+                    {parseResult.debug.isPerPacketFormat && (
+                      <span className="text-blue-400"> (counts = totals across all rows per unit)</span>
+                    )}
+                  </span>
+                  {parseResult.debug.resolvedSampleRecords.map((rec, i) => (
+                    <div key={i} className="text-foreground/70 mt-1">
+                      Unit {i + 1}:{' '}
+                      <span>unitId=</span>
+                      <span className={!rec.unitId || rec.unitId === 'N/A' ? 'text-red-400' : 'text-amber-300'}>
+                        &quot;{rec.unitId || 'N/A'}&quot;
+                      </span>{' '}
+                      <span>total=</span>
+                      <span className="text-green-400">{rec.total}</span>{' '}
+                      <span>stored=</span>
+                      <span className="text-green-400">{rec.stored}</span>{' '}
+                      <span>valid=</span>
+                      <span className="text-green-400">{rec.valid}</span>{' '}
+                      <span>normal=</span>
+                      <span className="text-green-400">{rec.normal}</span>
+                      {parseResult.debug.isPerPacketFormat && (
+                        <>
+                          {' '}
+                          <span>lastPktState=</span>
+                          <span className="text-cyan-300">&quot;{rec.pktState}&quot;</span>
+                        </>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Raw sample rows */}
+              {parseResult.debug.sampleRows.length > 0 && (
+                <div>
+                  <span className="text-muted-foreground">First {parseResult.debug.sampleRows.length} Raw Data Rows (after header):</span>
+                  {parseResult.debug.sampleRows.map((row, i) => (
+                    <div key={i} className="text-foreground/60 mt-1 break-all">
+                      Row {i + 1}: {Object.entries(row).slice(0, 6).map(([k, v]) => `${k}="${v}"`).join(' | ')}
+                      {Object.keys(row).length > 6 && ' | ...'}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
+      )}
+
+      {/* Column Mapping Selector */}
+      {parseResult && parseResult.debug.allColumnHeaders.length > 0 && (
+        <Collapsible open={columnMappingOpen} onOpenChange={setColumnMappingOpen}>
+          <CollapsibleTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full justify-between text-xs text-amber-400 hover:text-amber-300 h-8 border border-amber-500/30 rounded bg-amber-500/5 hover:bg-amber-500/10"
+            >
+              <span className="flex items-center gap-1">
+                <Settings2 className="h-3 w-3" />
+                Custom Column Mapping — select fields to show in Dashboard &amp; Reports
+              </span>
+              {columnMappingOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+            </Button>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <div className="mt-2 bg-muted/20 border border-amber-500/20 rounded-lg p-4">
+              <ColumnMappingSelector availableColumns={parseResult.debug.allColumnHeaders} />
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
       )}
     </div>
   );
-}
+};
+
+export default CSVImportSection;

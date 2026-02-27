@@ -2,10 +2,11 @@
   "kind": "feature_evidence_report",
   "features": [
     {
-      "featureId": "feature-fix-the-csv-parser-to-correctly-extract-the-stored-packet-count-from-the-uploaded-file-s-pktstate-column-the-pktstate-column-contains-rows-with-values-normal-and-stored-the-count-of-rows-where-pktstate-equals-stored-or-the-numeric-value-associated-with-that-state-should-be-mapped-to-the-storedpkts-field-currently-stored-packet-count-is-being-set-to-0-instead-of-the-correct-derived-value-the-relationship-is-normal-stored-total-packets-hit",
-      "featureTitle": "Fix the CSV parser to correctly extract the Stored packet count from the uploaded file's 'PktState' column. The PktState column contains rows with values 'Normal' and 'Stored'. The count of rows where PktState equals 'Stored' (or the numeric value associated with that state) should be mapped to the `storedPkts` field. Currently, Stored packet count is being set to 0 instead of the correct derived value. The relationship is: Normal + Stored = Total packets hit.",
+      "featureId": "feature-fix-the-csv-xls-parser-so-that-unit-ids-are-correctly-resolved-from-the-address-column-in-waggle-portal-export-files-the-debug-panel-shows-unitid-address-not-found-for-every-row-even-though-col-25-is-mapped-to-address-and-the-header-row-is-correctly-detected-the-parser-must-locate-the-address-column-by-scanning-the-detected-header-row-for-the-keyword-address-case-insensitive-and-use-that-column-index-to-read-each-row-s-unit-id-rather-than-failing-silently-and-emitting-address-not-found",
+      "featureTitle": "Fix the CSV/XLS parser so that unit IDs are correctly resolved from the 'Address' column in Waggle Portal export files. The debug panel shows unitId='Address not found' for every row even though col 25 is mapped to 'Address' and the header row is correctly detected. The parser must locate the Address column by scanning the detected header row for the keyword 'Address' (case-insensitive) and use that column index to read each row's unit ID, rather than failing silently and emitting 'Address not found'.",
       "files": [
-        "frontend/src/components/CSVImportSection.tsx"
+        "frontend/src/components/CSVImportSection.tsx",
+        "frontend/src/utils/csvParser.ts"
       ],
       "components": [
         "core-infrastructure@1.0.2",
@@ -16,6 +17,25 @@
       ],
       "testIds": [
         "REQ-1"
+      ],
+      "confidence": "high"
+    },
+    {
+      "featureId": "feature-audit-the-per-packet-event-log-aggregation-logic-in-csvparser-ts-to-ensure-that-total-stored-and-valid-packet-counts-are-computed-correctly-from-row-aggregation-after-the-address-column-fix-is-applied-if-the-counts-are-still-showing-aggregated-placeholders-rather-than-real-numbers-after-fixing-unit-id-resolution-ensure-the-aggregation-logic-runs-and-populates-numeric-values-before-records-are-submitted-to-the-backend",
+      "featureTitle": "Audit the per-packet event log aggregation logic in csvParser.ts to ensure that total, stored, and valid packet counts are computed correctly from row aggregation after the Address column fix is applied. If the counts are still showing 'aggregated' placeholders rather than real numbers after fixing unit ID resolution, ensure the aggregation logic runs and populates numeric values before records are submitted to the backend.",
+      "files": [
+        "frontend/src/components/CSVImportSection.tsx",
+        "frontend/src/utils/csvParser.ts"
+      ],
+      "components": [
+        "core-infrastructure@1.0.2",
+        "shadcn-ui@1.0.0",
+        "build-template-react@1.0.0",
+        "initial-app@1.0.0",
+        "github-export-icp-cli@1.0.0"
+      ],
+      "testIds": [
+        "REQ-2"
       ],
       "confidence": "high"
     }

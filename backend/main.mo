@@ -1,10 +1,11 @@
 import Map "mo:core/Map";
 import Text "mo:core/Text";
 import Nat "mo:core/Nat";
+import List "mo:core/List";
 import Iter "mo:core/Iter";
-import Migration "migration";
 
-(with migration = Migration.run)
+
+
 actor {
   type UnitModel = {
     #N135;
@@ -23,7 +24,14 @@ actor {
     normalPktCount : Nat;
   };
 
+  type ColumnMapping = {
+    displayColumns : List.List<Text>;
+  };
+
   let reports = Map.empty<Text, ReportEntry>();
+  let columnMapping : ColumnMapping = {
+    displayColumns = List.empty<Text>();
+  };
 
   public shared ({ caller }) func upsertReport(
     unit : UnitModel,
@@ -47,6 +55,22 @@ actor {
       normalPktCount = normalPkts;
     };
     reports.add(key, entry);
+  };
+
+  public shared ({ caller }) func addDisplayColumn(columnName : Text) : async () {
+    columnMapping.displayColumns.add(columnName);
+  };
+
+  public shared ({ caller }) func removeDisplayColumn(columnName : Text) : async () {
+    let filteredColumns = columnMapping.displayColumns.filter(func(name) { name != columnName });
+    columnMapping.displayColumns.clear();
+    for (name in filteredColumns.values()) {
+      columnMapping.displayColumns.add(name);
+    };
+  };
+
+  public query ({ caller }) func getDisplayColumns() : async [Text] {
+    columnMapping.displayColumns.toArray();
   };
 
   public query ({ caller }) func getReport(unitId : Text, weekYear : Text) : async ?ReportEntry {

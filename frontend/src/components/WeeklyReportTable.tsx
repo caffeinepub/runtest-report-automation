@@ -1,152 +1,177 @@
-import { useMemo } from 'react';
-import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Badge } from '@/components/ui/badge';
-import { Skeleton } from '@/components/ui/skeleton';
-import { type ReportEntry, UnitModel, MODEL_LABELS } from '@/hooks/useQueries';
-import { TrendingUp, TrendingDown, Minus } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import {
+  Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow,
+} from '@/components/ui/table';
+import { Button } from '@/components/ui/button';
+import { ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { ReportEntry } from '@/backend';
+import { useColumnMapping } from '@/hooks/useColumnMapping';
 
 interface WeeklyReportTableProps {
   entries: ReportEntry[];
-  isLoading: boolean;
-  selectedModel: UnitModel | 'ALL';
-  selectedWeek: string;
+  rawRowData?: Map<string, Record<string, string>>; // unitId -> raw CSV row
 }
 
-function GpsFixBadge({ pct }: { pct: number }) {
-  if (pct >= 90) return (
-    <Badge className="bg-green-500/20 text-green-400 border-green-500/30 font-mono text-xs gap-1">
-      <TrendingUp className="w-3 h-3" />
-      {pct.toFixed(1)}%
-    </Badge>
-  );
-  if (pct >= 70) return (
-    <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/30 font-mono text-xs gap-1">
-      <Minus className="w-3 h-3" />
-      {pct.toFixed(1)}%
-    </Badge>
-  );
-  return (
-    <Badge className="bg-red-500/20 text-red-400 border-red-500/30 font-mono text-xs gap-1">
-      <TrendingDown className="w-3 h-3" />
-      {pct.toFixed(1)}%
-    </Badge>
-  );
+type SortKey = 'unitId' | 'unitModel' | 'totalPkts' | 'normalPktCount' | 'storedPkts' | 'validGpsFixPkts';
+type SortDir = 'asc' | 'desc';
+
+function modelLabel(m: string): string {
+  if (m === 'N135') return 'N13-5';
+  if (m === 'N125') return 'N12-5';
+  return 'N13';
 }
 
-export function WeeklyReportTable({ entries, isLoading, selectedModel, selectedWeek }: WeeklyReportTableProps) {
-  // Entries are already filtered upstream (by week, model, and unit ID); just sort them here
-  const sortedEntries = useMemo(() => {
-    return [...entries].sort((a, b) => a.unitId.localeCompare(b.unitId));
-  }, [entries]);
+const WeeklyReportTable: React.FC<WeeklyReportTableProps> = ({ entries, rawRowData }) => {
+  const [sortKey, setSortKey] = useState<SortKey>('unitId');
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
 
-  const totals = useMemo(() => {
-    const totalPkts = sortedEntries.reduce((s, e) => s + Number(e.totalPkts), 0);
-    const storedPkts = sortedEntries.reduce((s, e) => s + Number(e.storedPkts), 0);
-    const validGpsPkts = sortedEntries.reduce((s, e) => s + Number(e.validGpsFixPkts), 0);
-    const normalPkts = sortedEntries.reduce((s, e) => s + Number(e.normalPktCount), 0);
-    const gpsFixPct = totalPkts > 0 ? (validGpsPkts / totalPkts) * 100 : 0;
-    return { totalPkts, storedPkts, validGpsPkts, normalPkts, gpsFixPct };
-  }, [sortedEntries]);
+  const { selectedColumns, getColumnValue } = useColumnMapping();
 
-  if (isLoading) {
-    return (
-      <div className="space-y-2">
-        {Array.from({ length: 5 }).map((_, i) => (
-          <Skeleton key={i} className="h-10 w-full bg-secondary" />
-        ))}
-      </div>
-    );
-  }
+  const sorted = useMemo(() => {
+    return [...entries].sort((a, b) => {
+      let cmp = 0;
+      switch (sortKey) {
+        case 'unitId':
+          cmp = a.unitId.localeCompare(b.unitId);
+          break;
+        case 'unitModel':
+          cmp = String(a.unitModel).localeCompare(String(b.unitModel));
+          break;
+        case 'totalPkts':
+          cmp = Number(a.totalPkts) - Number(b.totalPkts);
+          break;
+        case 'normalPktCount':
+          cmp = Number(a.normalPktCount) - Number(b.normalPktCount);
+          break;
+        case 'storedPkts':
+          cmp = Number(a.storedPkts) - Number(b.storedPkts);
+          break;
+        case 'validGpsFixPkts':
+          cmp = Number(a.validGpsFixPkts) - Number(b.validGpsFixPkts);
+          break;
+      }
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
+  }, [entries, sortKey, sortDir]);
 
-  if (sortedEntries.length === 0) {
-    return (
-      <div className="text-center py-16 text-muted-foreground">
-        <div className="text-4xl mb-3">📡</div>
-        <p className="text-sm font-medium">No data found</p>
-        <p className="text-xs mt-1">No entries for {selectedWeek}{selectedModel !== 'ALL' ? ` / ${MODEL_LABELS[selectedModel as UnitModel]}` : ''}</p>
-      </div>
-    );
-  }
+  const totals = useMemo(() => ({
+    total: entries.reduce((s, e) => s + Number(e.totalPkts), 0),
+    normal: entries.reduce((s, e) => s + Number(e.normalPktCount), 0),
+    stored: entries.reduce((s, e) => s + Number(e.storedPkts), 0),
+    valid: entries.reduce((s, e) => s + Number(e.validGpsFixPkts), 0),
+  }), [entries]);
+
+  const handleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortKey(key);
+      setSortDir('asc');
+    }
+  };
+
+  const SortIcon = ({ k }: { k: SortKey }) => {
+    if (sortKey !== k) return <ArrowUpDown className="h-3 w-3 opacity-40" />;
+    return sortDir === 'asc'
+      ? <ArrowUp className="h-3 w-3 text-amber-400" />
+      : <ArrowDown className="h-3 w-3 text-amber-400" />;
+  };
+
+  const totalColSpan = 6 + selectedColumns.length;
 
   return (
     <div className="overflow-x-auto">
       <Table>
         <TableHeader>
-          <TableRow className="border-border hover:bg-transparent">
-            <TableHead className="text-xs text-muted-foreground uppercase tracking-wide">Unit ID</TableHead>
-            {selectedModel === 'ALL' && (
-              <TableHead className="text-xs text-muted-foreground uppercase tracking-wide">Model</TableHead>
-            )}
-            <TableHead className="text-xs text-muted-foreground uppercase tracking-wide text-right">Total Pkts</TableHead>
-            <TableHead className="text-xs text-muted-foreground uppercase tracking-wide text-right">Normal Pkts</TableHead>
-            <TableHead className="text-xs text-muted-foreground uppercase tracking-wide text-right">Stored Pkts</TableHead>
-            <TableHead className="text-xs text-muted-foreground uppercase tracking-wide text-right">Valid GPS Pkts</TableHead>
-            <TableHead className="text-xs text-muted-foreground uppercase tracking-wide text-right">GPS Fix %</TableHead>
-            <TableHead className="text-xs text-muted-foreground uppercase tracking-wide text-right">Stored %</TableHead>
+          <TableRow className="border-border/40 hover:bg-transparent">
+            <TableHead className="text-xs font-semibold text-muted-foreground w-8">#</TableHead>
+            <TableHead className="text-xs font-semibold text-muted-foreground">
+              <Button variant="ghost" size="sm" className="h-6 px-0 text-xs font-semibold text-muted-foreground hover:text-foreground" onClick={() => handleSort('unitId')}>
+                Unit ID <SortIcon k="unitId" />
+              </Button>
+            </TableHead>
+            <TableHead className="text-xs font-semibold text-muted-foreground">
+              <Button variant="ghost" size="sm" className="h-6 px-0 text-xs font-semibold text-muted-foreground hover:text-foreground" onClick={() => handleSort('unitModel')}>
+                Model <SortIcon k="unitModel" />
+              </Button>
+            </TableHead>
+            <TableHead className="text-xs font-semibold text-muted-foreground text-right">
+              <Button variant="ghost" size="sm" className="h-6 px-0 text-xs font-semibold text-muted-foreground hover:text-foreground" onClick={() => handleSort('totalPkts')}>
+                Total <SortIcon k="totalPkts" />
+              </Button>
+            </TableHead>
+            <TableHead className="text-xs font-semibold text-muted-foreground text-right">
+              <Button variant="ghost" size="sm" className="h-6 px-0 text-xs font-semibold text-muted-foreground hover:text-foreground" onClick={() => handleSort('normalPktCount')}>
+                Normal Pkts <SortIcon k="normalPktCount" />
+              </Button>
+            </TableHead>
+            <TableHead className="text-xs font-semibold text-muted-foreground text-right">
+              <Button variant="ghost" size="sm" className="h-6 px-0 text-xs font-semibold text-muted-foreground hover:text-foreground" onClick={() => handleSort('storedPkts')}>
+                Stored <SortIcon k="storedPkts" />
+              </Button>
+            </TableHead>
+            <TableHead className="text-xs font-semibold text-muted-foreground text-right">
+              <Button variant="ghost" size="sm" className="h-6 px-0 text-xs font-semibold text-muted-foreground hover:text-foreground" onClick={() => handleSort('validGpsFixPkts')}>
+                Valid GPS <SortIcon k="validGpsFixPkts" />
+              </Button>
+            </TableHead>
+            {/* Custom columns */}
+            {selectedColumns.map(col => (
+              <TableHead
+                key={col}
+                className="text-xs font-semibold text-amber-400/80 text-right bg-amber-500/5 border-l border-amber-500/20"
+                title={col}
+              >
+                <span className="truncate max-w-[80px] block">{col}</span>
+              </TableHead>
+            ))}
           </TableRow>
         </TableHeader>
         <TableBody>
-          {sortedEntries.map((entry) => {
-            const total = Number(entry.totalPkts);
-            const stored = Number(entry.storedPkts);
-            const valid = Number(entry.validGpsFixPkts);
-            const normal = Number(entry.normalPktCount);
-            const gpsFixPct = total > 0 ? (valid / total) * 100 : 0;
-            const storedPct = total > 0 ? (stored / total) * 100 : 0;
-
+          {sorted.map((entry, idx) => {
+            const rawRow = rawRowData?.get(entry.unitId);
             return (
-              <TableRow key={`${entry.unitId}-${entry.weekYear}`} className="border-border hover:bg-secondary/30">
-                <TableCell className="font-mono text-sm font-medium text-foreground">
-                  {entry.unitId}
-                </TableCell>
-                {selectedModel === 'ALL' && (
-                  <TableCell>
-                    <Badge variant="outline" className="font-mono text-xs border-primary/30 text-primary">
-                      {MODEL_LABELS[entry.unitModel as UnitModel] ?? String(entry.unitModel)}
-                    </Badge>
+              <TableRow key={entry.unitId} className="border-border/20 hover:bg-muted/20">
+                <TableCell className="text-xs text-muted-foreground">{idx + 1}</TableCell>
+                <TableCell className="text-xs font-mono font-medium text-amber-300">{entry.unitId}</TableCell>
+                <TableCell className="text-xs text-foreground/80">{modelLabel(String(entry.unitModel))}</TableCell>
+                <TableCell className="text-xs text-right tabular-nums">{Number(entry.totalPkts).toLocaleString()}</TableCell>
+                <TableCell className="text-xs text-right tabular-nums text-blue-300">{Number(entry.normalPktCount).toLocaleString()}</TableCell>
+                <TableCell className="text-xs text-right tabular-nums">{Number(entry.storedPkts).toLocaleString()}</TableCell>
+                <TableCell className="text-xs text-right tabular-nums text-green-400">{Number(entry.validGpsFixPkts).toLocaleString()}</TableCell>
+                {/* Custom column cells */}
+                {selectedColumns.map(col => (
+                  <TableCell
+                    key={col}
+                    className="text-xs text-right tabular-nums text-amber-200/70 bg-amber-500/5 border-l border-amber-500/10"
+                  >
+                    {getColumnValue(rawRow, col)}
                   </TableCell>
-                )}
-                <TableCell className="data-table-cell text-right">{total.toLocaleString()}</TableCell>
-                <TableCell className="data-table-cell text-right">{normal.toLocaleString()}</TableCell>
-                <TableCell className="data-table-cell text-right">{stored.toLocaleString()}</TableCell>
-                <TableCell className="data-table-cell text-right">{valid.toLocaleString()}</TableCell>
-                <TableCell className="text-right">
-                  <GpsFixBadge pct={gpsFixPct} />
-                </TableCell>
-                <TableCell className="data-table-cell text-right text-muted-foreground">
-                  {storedPct.toFixed(1)}%
-                </TableCell>
+                ))}
               </TableRow>
             );
           })}
         </TableBody>
         <TableFooter>
-          <TableRow className="border-t-2 border-primary/30 bg-secondary/50 font-semibold">
-            <TableCell className="font-mono text-sm text-primary">
-              TOTALS ({sortedEntries.length} units)
+          <TableRow className="border-border/40 bg-muted/30">
+            <TableCell colSpan={3} className="text-xs font-semibold text-muted-foreground">
+              Totals ({entries.length} units)
             </TableCell>
-            {selectedModel === 'ALL' && <TableCell />}
-            <TableCell className="data-table-cell text-right text-primary">
-              {totals.totalPkts.toLocaleString()}
-            </TableCell>
-            <TableCell className="data-table-cell text-right text-primary">
-              {totals.normalPkts.toLocaleString()}
-            </TableCell>
-            <TableCell className="data-table-cell text-right">
-              {totals.storedPkts.toLocaleString()}
-            </TableCell>
-            <TableCell className="data-table-cell text-right">
-              {totals.validGpsPkts.toLocaleString()}
-            </TableCell>
-            <TableCell className="text-right">
-              <GpsFixBadge pct={totals.gpsFixPct} />
-            </TableCell>
-            <TableCell className="data-table-cell text-right text-muted-foreground">
-              {totals.totalPkts > 0 ? ((totals.storedPkts / totals.totalPkts) * 100).toFixed(1) : '0.0'}%
-            </TableCell>
+            <TableCell className="text-xs font-semibold text-right tabular-nums">{totals.total.toLocaleString()}</TableCell>
+            <TableCell className="text-xs font-semibold text-right tabular-nums text-blue-300">{totals.normal.toLocaleString()}</TableCell>
+            <TableCell className="text-xs font-semibold text-right tabular-nums">{totals.stored.toLocaleString()}</TableCell>
+            <TableCell className="text-xs font-semibold text-right tabular-nums text-green-400">{totals.valid.toLocaleString()}</TableCell>
+            {/* Custom column totals footer — span remaining */}
+            {selectedColumns.map(col => (
+              <TableCell key={col} className="text-xs text-right text-muted-foreground bg-amber-500/5 border-l border-amber-500/10">
+                —
+              </TableCell>
+            ))}
           </TableRow>
         </TableFooter>
       </Table>
     </div>
   );
-}
+};
+
+export default WeeklyReportTable;
