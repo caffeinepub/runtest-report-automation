@@ -1,15 +1,17 @@
 {
   "kind": "spec_vs_diff_report",
   "version": "1.0",
-  "generatedAt": "2026-02-26T13:43:23.728Z",
-  "summary": "The diff addresses REQ-1 by fixing the root cause of all import failures: mutation functions in useQueries.ts were calling non-existent actor methods (actor.createReport/actor.updateReport) instead of actor.upsertReport. The fix updates useDirectUpsert and related hooks to call the correct actor.upsertReport method. Error toast messages now include the specific backend error reason, and detailed console logging was added for each upsert attempt. Unit ID continues to be derived exclusively from the filename stem. The backend main.mo was also updated. All four acceptance criteria appear to be addressed.",
+  "generatedAt": "2026-02-26T14:41:12.689Z",
+  "summary": "Both REQ-1 and REQ-2 appear to be implemented. The frontend CSV parser now counts 'Stored' state rows and maps them to storedPkts, the backend ReportEntry type includes storedPktCount, the upsert function accepts and persists it, and a migration module is added to default existing entries to 0. No significant missing requirements or hallucinated features were found.",
   "missing_requirements": [],
   "hallucinated_features": [],
-  "confidence": 0.87,
+  "confidence": 0.88,
   "changed_files": [
     "backend/main.mo",
+    "backend/migration.mo",
     "frontend-file-summaries.txt",
     "frontend/src/components/CSVImportSection.tsx",
+    "frontend/src/components/DataEntryForm.tsx",
     "frontend/src/hooks/useQueries.ts",
     "project_state.json"
   ]

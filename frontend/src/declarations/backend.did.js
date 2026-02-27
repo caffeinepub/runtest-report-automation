@@ -18,8 +18,10 @@ export const ReportEntry = IDL.Record({
   'validGpsFixPkts' : IDL.Nat,
   'weekYear' : IDL.Text,
   'unitId' : IDL.Text,
+  'normalPktCount' : IDL.Nat,
   'totalPkts' : IDL.Nat,
   'storedPkts' : IDL.Nat,
+  'storedPktCount' : IDL.Nat,
 });
 
 export const idlService = IDL.Service({
@@ -30,7 +32,16 @@ export const idlService = IDL.Service({
       ['query'],
     ),
   'upsertReport' : IDL.Func(
-      [UnitModel, IDL.Text, IDL.Text, IDL.Nat, IDL.Nat, IDL.Nat],
+      [
+        UnitModel,
+        IDL.Text,
+        IDL.Text,
+        IDL.Nat,
+        IDL.Nat,
+        IDL.Nat,
+        IDL.Nat,
+        IDL.Nat,
+      ],
       [],
       [],
     ),
@@ -49,8 +60,10 @@ export const idlFactory = ({ IDL }) => {
     'validGpsFixPkts' : IDL.Nat,
     'weekYear' : IDL.Text,
     'unitId' : IDL.Text,
+    'normalPktCount' : IDL.Nat,
     'totalPkts' : IDL.Nat,
     'storedPkts' : IDL.Nat,
+    'storedPktCount' : IDL.Nat,
   });
   
   return IDL.Service({
@@ -61,7 +74,16 @@ export const idlFactory = ({ IDL }) => {
         ['query'],
       ),
     'upsertReport' : IDL.Func(
-        [UnitModel, IDL.Text, IDL.Text, IDL.Nat, IDL.Nat, IDL.Nat],
+        [
+          UnitModel,
+          IDL.Text,
+          IDL.Text,
+          IDL.Nat,
+          IDL.Nat,
+          IDL.Nat,
+          IDL.Nat,
+          IDL.Nat,
+        ],
         [],
         [],
       ),

@@ -9,7 +9,8 @@ interface ModelSummaryCardProps {
 }
 
 export function ModelSummaryCard({ model, entries }: ModelSummaryCardProps) {
-  const unitCount = entries.length;
+  // Count distinct unit IDs to match the report page's unit count
+  const unitCount = new Set(entries.map(e => e.unitId)).size;
   const totalPkts = entries.reduce((sum, e) => sum + Number(e.totalPkts), 0);
   const storedPkts = entries.reduce((sum, e) => sum + Number(e.storedPkts), 0);
   const validGpsPkts = entries.reduce((sum, e) => sum + Number(e.validGpsFixPkts), 0);

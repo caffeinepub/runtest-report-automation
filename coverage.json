@@ -1,30 +1,39 @@
 {
   "kind": "coverage_report",
   "version": "1.0",
-  "generatedAt": "2026-02-26T13:43:23.732Z",
+  "generatedAt": "2026-02-26T14:41:12.692Z",
   "sources": {
     "buildRequest": true,
     "implementationPlan": true
   },
   "requirements": {
-    "total": 1,
+    "total": 2,
     "implemented": 1,
     "items": [
       {
         "id": "REQ-1",
-        "summary": "Investigate and fix the import failure in CSVImportSection where all parsed records fail to upsert to the backend. The error toast shows 'Failed to import unit \"S10026_PRD\" (2026-W09) from \"S10026_PRD.xls\"' followed by 'All 4 records failed to import'. The unit IDs are derived from filenames (e.g. S10026_PRD, S10006-PRD, S10002-PRD). Identify why the backend upsert calls are failing — likely causes include: (1) the unit ID or week key format not matching what the backend actor expects, (2) a type mismatch in the data being sent, or (3) an error thrown by the backend actor during the create/update call. Add detailed per-record error logging to the console and ensure the error toast message includes the specific backend error reason so users can diagnose the problem.",
+        "summary": "Fix the CSV parser to correctly extract the Stored packet count from the uploaded file's 'PktState' column. The PktState column contains rows with values 'Normal' and 'Stored'. The count of rows where PktState equals 'Stored' (or the numeric value associated with that state) should be mapped to the `storedPkts` field. Currently, Stored packet count is being set to 0 instead of the correct derived value. The relationship is: Normal + Stored = Total packets hit.",
         "status": "implemented",
         "plannedFiles": [
+          "frontend/src/utils/csvParser.ts",
           "frontend/src/components/CSVImportSection.tsx"
         ],
         "matchedFiles": [
           "frontend/src/components/CSVImportSection.tsx"
         ]
+      },
+      {
+        "id": "REQ-2",
+        "summary": "Ensure the backend data model stores `storedPktCount` as a separate field (alongside `normalPktCount`) in the report entry schema, and that the upsert function correctly persists the stored packet count submitted from the frontend parser.",
+        "status": "unknown",
+        "plannedFiles": [],
+        "matchedFiles": []
       }
     ]
   },
   "changedFiles": [
     "backend/main.mo",
+    "backend/migration.mo",
     "build-request.json",
     "feature_evidence.json",
     "frontend-file-summaries.txt",
@@ -32,6 +41,7 @@
     "frontend/src/backend.d.ts",
     "frontend/src/backend.ts",
     "frontend/src/components/CSVImportSection.tsx",
+    "frontend/src/components/DataEntryForm.tsx",
     "frontend/src/declarations/backend.did.d.ts",
     "frontend/src/declarations/backend.did.js",
     "frontend/src/hooks/useQueries.ts",

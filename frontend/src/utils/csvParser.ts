@@ -7,6 +7,7 @@ export interface ParsedRow {
   unitId: string;
   totalPkts: number;
   storedPkts: number;
+  normalPktCount: number;
   totalGpsPackets: number;
   validGpsFixPkts: number;
   model?: string;
@@ -232,6 +233,7 @@ function parseWaggleFormat(grid: unknown[][]): ParseResult | null {
       unitId: 'pending',
       totalPkts: isNormal || isStored ? 1 : 0,
       storedPkts: isStored ? 1 : 0,
+      normalPktCount: isNormal ? 1 : 0,
       totalGpsPackets: hasGpsData ? 1 : 0,
       validGpsFixPkts: isValidGps ? 1 : 0,
       model: '',
@@ -274,6 +276,7 @@ function aggregateToSingleUnit(rows: ParsedRow[], deviceName: string, resultWeek
     unitId: deviceName,
     totalPkts: 0,
     storedPkts: 0,
+    normalPktCount: 0,
     totalGpsPackets: 0,
     validGpsFixPkts: 0,
     model: model || '',
@@ -283,6 +286,7 @@ function aggregateToSingleUnit(rows: ParsedRow[], deviceName: string, resultWeek
   for (const row of rows) {
     aggregated.totalPkts += row.totalPkts;
     aggregated.storedPkts += row.storedPkts;
+    aggregated.normalPktCount += row.normalPktCount;
     aggregated.totalGpsPackets += row.totalGpsPackets;
     aggregated.validGpsFixPkts += row.validGpsFixPkts;
   }

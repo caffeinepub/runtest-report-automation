@@ -20,10 +20,21 @@ interface ReportFiltersProps {
 
 function exportToCSV(entries: ReportEntry[], week: string, model: UnitModel | 'ALL', unitId: string) {
   const modelLabel = model === 'ALL' ? 'All Models' : MODEL_LABELS[model];
-  const headers = ['Unit ID', 'Model', 'Week', 'Total Packets', 'Stored Packets', 'Valid GPS Fix Packets', 'GPS Fix %', 'Stored %'];
+  const headers = [
+    'Unit ID',
+    'Model',
+    'Week',
+    'Total Packets',
+    'Normal Packets',
+    'Stored Packets',
+    'Valid GPS Fix Packets',
+    'GPS Fix %',
+    'Stored %',
+  ];
 
   const rows = entries.map(e => {
     const total = Number(e.totalPkts);
+    const normal = Number(e.normalPktCount);
     const stored = Number(e.storedPkts);
     const valid = Number(e.validGpsFixPkts);
     const gpsPct = total > 0 ? ((valid / total) * 100).toFixed(2) : '0.00';
@@ -33,6 +44,7 @@ function exportToCSV(entries: ReportEntry[], week: string, model: UnitModel | 'A
       MODEL_LABELS[e.unitModel as UnitModel] ?? String(e.unitModel),
       e.weekYear,
       total,
+      normal,
       stored,
       valid,
       gpsPct + '%',
@@ -42,11 +54,12 @@ function exportToCSV(entries: ReportEntry[], week: string, model: UnitModel | 'A
 
   // Add totals row
   const totalPkts = entries.reduce((s, e) => s + Number(e.totalPkts), 0);
+  const normalPkts = entries.reduce((s, e) => s + Number(e.normalPktCount), 0);
   const storedPkts = entries.reduce((s, e) => s + Number(e.storedPkts), 0);
   const validPkts = entries.reduce((s, e) => s + Number(e.validGpsFixPkts), 0);
   const gpsPct = totalPkts > 0 ? ((validPkts / totalPkts) * 100).toFixed(2) : '0.00';
   const storedPct = totalPkts > 0 ? ((storedPkts / totalPkts) * 100).toFixed(2) : '0.00';
-  rows.push(['TOTALS', modelLabel, week, totalPkts, storedPkts, validPkts, gpsPct + '%', storedPct + '%']);
+  rows.push(['TOTALS', modelLabel, week, totalPkts, normalPkts, storedPkts, validPkts, gpsPct + '%', storedPct + '%']);
 
   const csvContent = [headers, ...rows]
     .map(row => row.map(cell => `"${cell}"`).join(','))

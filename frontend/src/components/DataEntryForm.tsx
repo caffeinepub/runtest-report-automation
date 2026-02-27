@@ -14,6 +14,7 @@ interface UnitRow {
   id: string;
   unitId: string;
   totalPkts: string;
+  normalPkts: string;
   storedPkts: string;
   validGpsPkts: string;
   error?: string;
@@ -24,6 +25,7 @@ function createEmptyRow(): UnitRow {
     id: crypto.randomUUID(),
     unitId: '',
     totalPkts: '',
+    normalPkts: '',
     storedPkts: '',
     validGpsPkts: '',
   };
@@ -32,9 +34,11 @@ function createEmptyRow(): UnitRow {
 function validateRow(row: UnitRow): string | undefined {
   if (!row.unitId.trim()) return 'Unit ID is required';
   const total = parseInt(row.totalPkts);
+  const normal = parseInt(row.normalPkts);
   const stored = parseInt(row.storedPkts);
   const valid = parseInt(row.validGpsPkts);
   if (isNaN(total) || total < 0) return 'Total packets must be a non-negative integer';
+  if (row.normalPkts !== '' && (isNaN(normal) || normal < 0)) return 'Normal packets must be a non-negative integer';
   if (isNaN(stored) || stored < 0) return 'Stored packets must be a non-negative integer';
   if (isNaN(valid) || valid < 0) return 'Valid GPS packets must be a non-negative integer';
   if (stored > total) return 'Stored packets cannot exceed total packets';
@@ -94,13 +98,17 @@ export function DataEntryForm() {
     let errorCount = 0;
 
     for (const row of filledRows) {
+      const storedVal = BigInt(parseInt(row.storedPkts) || 0);
       try {
         await upsertReport.mutateAsync({
           unit: selectedModel,
           id: row.unitId.trim(),
           week: weekLabel,
           total: BigInt(parseInt(row.totalPkts) || 0),
-          stored: BigInt(parseInt(row.storedPkts) || 0),
+          normalPkts: BigInt(parseInt(row.normalPkts) || 0),
+          // stored = legacy field; storedPkts = dedicated storedPktCount field
+          stored: storedVal,
+          storedPkts: storedVal,
           valid: BigInt(parseInt(row.validGpsPkts) || 0),
         });
         successCount++;
@@ -219,6 +227,7 @@ export function DataEntryForm() {
                 <TableHead className="w-12 text-center text-xs text-muted-foreground">#</TableHead>
                 <TableHead className="text-xs text-muted-foreground">Unit ID</TableHead>
                 <TableHead className="text-xs text-muted-foreground text-right">Total Packets</TableHead>
+                <TableHead className="text-xs text-muted-foreground text-right">Normal Packets</TableHead>
                 <TableHead className="text-xs text-muted-foreground text-right">Stored Packets</TableHead>
                 <TableHead className="text-xs text-muted-foreground text-right">Valid GPS Fix</TableHead>
                 <TableHead className="w-10"></TableHead>
@@ -250,6 +259,16 @@ export function DataEntryForm() {
                     <Input
                       value={row.totalPkts}
                       onChange={e => updateRow(row.id, 'totalPkts', e.target.value)}
+                      placeholder="0"
+                      type="number"
+                      min="0"
+                      className="h-8 bg-secondary border-border font-mono text-sm text-right"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Input
+                      value={row.normalPkts}
+                      onChange={e => updateRow(row.id, 'normalPkts', e.target.value)}
                       placeholder="0"
                       type="number"
                       min="0"

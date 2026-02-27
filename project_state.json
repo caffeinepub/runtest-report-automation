@@ -1,24 +1,36 @@
 {
   "schemaVersion": "1.0.0",
   "projectStateVersion": 3,
-  "summary": "New project",
-  "architectural_notes": [],
+  "summary": "Project involves a reporting/analytics tool that processes uploaded files. A column named 'PktState' in the upload file contains packet state values where Normal + Stored = Total packets hit. The Reports section should display Stored packet count correctly.",
+  "architectural_notes": [
+    "Upload file has a column 'PktState' where values represent packet states; Normal + Stored = Total packets hit"
+  ],
   "known_issues": [
-    "Import to dashboard is failing with an error (reported by user)"
+    "Stored packet count is showing as 0 in the Reports section instead of the correct value derived from PktState column"
   ],
   "isFixRequest": true,
   "existing_features": [
     {
-      "id": "feature-investigate-and-fix-the-import-failure-in-csvimportsection-where-all-parsed-records-fail-to-upsert-to-the-backend-the-error-toast-shows-failed-to-import-unit-s10026-prd-2026-w09-from-s10026-prd-xls-followed-by-all-4-records-failed-to-import-the-unit-ids-are-derived-from-filenames-e-g-s10026-prd-s10006-prd-s10002-prd-identify-why-the-backend-upsert-calls-are-failing-likely-causes-include-1-the-unit-id-or-week-key-format-not-matching-what-the-backend-actor-expects-2-a-type-mismatch-in-the-data-being-sent-or-3-an-error-thrown-by-the-backend-actor-during-the-create-update-call-add-detailed-per-record-error-logging-to-the-console-and-ensure-the-error-toast-message-includes-the-specific-backend-error-reason-so-users-can-diagnose-the-problem",
-      "title": "Investigate and fix the import failure in CSVImportSection where all parsed records fail to upsert to the backend. The error toast shows 'Failed to import unit \"S10026_PRD\" (2026-W09) from \"S10026_PRD.xls\"' followed by 'All 4 records failed to import'. The unit IDs are derived from filenames (e.g. S10026_PRD, S10006-PRD, S10002-PRD). Identify why the backend upsert calls are failing — likely causes include: (1) the unit ID or week key format not matching what the backend actor expects, (2) a type mismatch in the data being sent, or (3) an error thrown by the backend actor during the create/update call. Add detailed per-record error logging to the console and ensure the error toast message includes the specific backend error reason so users can diagnose the problem.",
+      "id": "feature-fix-the-csv-parser-to-correctly-extract-the-stored-packet-count-from-the-uploaded-file-s-pktstate-column-the-pktstate-column-contains-rows-with-values-normal-and-stored-the-count-of-rows-where-pktstate-equals-stored-or-the-numeric-value-associated-with-that-state-should-be-mapped-to-the-storedpkts-field-currently-stored-packet-count-is-being-set-to-0-instead-of-the-correct-derived-value-the-relationship-is-normal-stored-total-packets-hit",
+      "title": "Fix the CSV parser to correctly extract the Stored packet count from the uploaded file's 'PktState' column. The PktState column contains rows with values 'Normal' and 'Stored'. The count of rows where PktState equals 'Stored' (or the numeric value associated with that state) should be mapped to the `storedPkts` field. Currently, Stored packet count is being set to 0 instead of the correct derived value. The relationship is: Normal + Stored = Total packets hit.",
       "reqIds": [
         "REQ-1"
       ],
       "version": 1
     }
   ],
-  "new_feature_requests": [],
-  "projectName": "RunTest Report",
+  "new_feature_requests": [
+    {
+      "id": "AR-2",
+      "summary": "Ensure the backend data model stores `storedPktCount` as a separate field (alongside `normalPktCount`) in the report entry schema, and that the upsert function correctly persists the stored packet count submitted from the frontend parser.",
+      "reqIds": [
+        "REQ-2"
+      ],
+      "status": "pending"
+    }
+  ],
+  "gameProjectType": "none",
+  "projectName": "GPS Packet Tracker",
   "clarification_mode": "instant",
   "clarification_rounds": 0
 }

@@ -15,8 +15,10 @@ export interface ReportEntry {
   'validGpsFixPkts' : bigint,
   'weekYear' : string,
   'unitId' : string,
+  'normalPktCount' : bigint,
   'totalPkts' : bigint,
   'storedPkts' : bigint,
+  'storedPktCount' : bigint,
 }
 export type UnitModel = { 'N13' : null } |
   { 'N125' : null } |
@@ -25,7 +27,7 @@ export interface _SERVICE {
   'getAllReports' : ActorMethod<[], Array<ReportEntry>>,
   'getReport' : ActorMethod<[string, string], [] | [ReportEntry]>,
   'upsertReport' : ActorMethod<
-    [UnitModel, string, string, bigint, bigint, bigint],
+    [UnitModel, string, string, bigint, bigint, bigint, bigint, bigint],
     undefined
   >,
 }

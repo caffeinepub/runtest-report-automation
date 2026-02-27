@@ -14,6 +14,71 @@ interface ParsedFileEntry {
 
 const MODEL_OPTIONS: UnitModel[] = [UnitModel.N135, UnitModel.N13, UnitModel.N125];
 
+/**
+ * Detect IC0508 "Canister is stopped" errors from the Internet Computer.
+ * These appear as rejection objects with reject_code 5 or error_code IC0508,
+ * or as stringified JSON containing those patterns.
+ */
+function isCanisterStoppedError(err: unknown): boolean {
+  if (!err) return false;
+
+  // Check if the error object has IC-specific rejection fields
+  if (typeof err === 'object') {
+    const e = err as Record<string, unknown>;
+    // Direct rejection object
+    if (e.reject_code === 5 || e.error_code === 'IC0508') return true;
+    // Nested body object
+    if (e.body && typeof e.body === 'object') {
+      const body = e.body as Record<string, unknown>;
+      if (body.reject_code === 5 || body.error_code === 'IC0508') return true;
+      if (typeof body.status === 'string' && body.status === 'non_replicated_rejection') return true;
+    }
+    // Check message string
+    if (typeof e.message === 'string') {
+      const msg = e.message;
+      if (
+        msg.includes('IC0508') ||
+        msg.includes('non_replicated_rejection') ||
+        (msg.includes('Canister') && msg.includes('stopped')) ||
+        (msg.includes('reject_code') && msg.includes('5'))
+      ) return true;
+    }
+  }
+
+  // Check stringified error
+  const str = String(err);
+  if (
+    str.includes('IC0508') ||
+    str.includes('non_replicated_rejection') ||
+    (str.includes('Canister') && str.includes('stopped')) ||
+    (str.includes('reject_code') && str.includes('"5"')) ||
+    (str.includes('"reject_code":5') || str.includes('"reject_code": 5'))
+  ) return true;
+
+  return false;
+}
+
+/**
+ * Return a clean, human-readable error reason for display.
+ * Never exposes raw JSON to the user.
+ */
+function getReadableErrorReason(err: unknown): { reason: string; isCanisterStopped: boolean } {
+  if (isCanisterStoppedError(err)) {
+    return {
+      reason: 'backend service is currently stopped',
+      isCanisterStopped: true,
+    };
+  }
+
+  if (err instanceof Error) {
+    // Strip any JSON blobs from the message
+    const clean = err.message.replace(/\{[\s\S]*\}/g, '').trim();
+    return { reason: clean || 'unknown error', isCanisterStopped: false };
+  }
+
+  return { reason: 'unknown error', isCanisterStopped: false };
+}
+
 export default function CSVImportSection() {
   const [parsedFiles, setParsedFiles] = useState<ParsedFileEntry[]>([]);
   const [isDragging, setIsDragging] = useState(false);
@@ -88,7 +153,7 @@ export default function CSVImportSection() {
 
     setIsImporting(true);
     let successCount = 0;
-    let errorCount = 0;
+    const failures: Array<{ id: string; week: string; reason: string; isCanisterStopped: boolean }> = [];
 
     try {
       const allRecords: Array<{
@@ -96,78 +161,43 @@ export default function CSVImportSection() {
         id: string;
         week: string;
         total: bigint;
+        normalPkts: bigint;
+        storedPkts: bigint;
         stored: bigint;
         valid: bigint;
         fileName: string;
       }> = [];
 
-      for (const entry of parsedFiles) {
-        const { result, fileName } = entry;
+      // Build the list of records to upsert from all parsed files
+      for (const { fileName, result } of parsedFiles) {
+        if (result.errors.length > 0 || result.rows.length === 0) continue;
 
-        // Unit ID is ALWAYS derived from the filename stem — never from file content
+        // Unit ID is always derived from the filename — never from row content
         const unitId = getUnitIdFromFileName(fileName);
 
-        if (!unitId || unitId.trim() === '') {
-          console.warn(`[CSVImport] Skipping ${fileName}: could not derive unit ID from filename`);
-          toast.warning(`Skipped "${fileName}": could not determine Unit ID from filename`);
-          errorCount++;
-          continue;
+        for (const row of result.rows) {
+          const model = resolveModel(row.model);
+          const week = result.weekYear || defaultWeek;
+
+          allRecords.push({
+            unit: model,
+            id: unitId,
+            week,
+            total: BigInt(row.totalPkts),
+            normalPkts: BigInt(row.normalPktCount ?? 0),
+            // storedPkts = the dedicated storedPktCount field (7th backend param)
+            storedPkts: BigInt(row.storedPkts),
+            // stored = legacy storedPkts field (5th backend param), same value
+            stored: BigInt(row.storedPkts),
+            valid: BigInt(row.validGpsFixPkts),
+            fileName,
+          });
         }
-
-        if (result.rows.length === 0) {
-          console.warn(`[CSVImport] Skipping ${fileName}: no data rows parsed`);
-          continue;
-        }
-
-        // Use the first (and only) aggregated row for packet counts
-        const row = result.rows[0];
-
-        // Week resolution: row-level → result-level → defaultWeek
-        const weekYear = (row.weekYear && row.weekYear.trim())
-          || (result.weekYear && result.weekYear.trim())
-          || defaultWeek.trim();
-
-        if (!weekYear) {
-          console.warn(`[CSVImport] Skipping ${fileName}: missing weekYear`);
-          toast.warning(`Skipped unit "${unitId}" in "${fileName}": missing week. Set a Default Week override.`);
-          errorCount++;
-          continue;
-        }
-
-        const model = resolveModel(row.model);
-        const totalPkts = row.totalPkts ?? 0;
-        const storedPkts = row.storedPkts ?? 0;
-        const validGpsFixPkts = row.validGpsFixPkts ?? 0;
-
-        console.log(`[CSVImport] Queued record:`, {
-          unitId: unitId.trim(),
-          weekYear,
-          model,
-          totalPkts,
-          storedPkts,
-          validGpsFixPkts,
-        });
-
-        allRecords.push({
-          unit: model,
-          id: unitId.trim(),
-          week: weekYear,
-          total: BigInt(totalPkts),
-          stored: BigInt(storedPkts),
-          valid: BigInt(validGpsFixPkts),
-          fileName,
-        });
       }
 
-      if (allRecords.length === 0) {
-        toast.error('No valid records to import. Check that files have data and week information.');
-        return;
-      }
-
-      // Upsert all records sequentially
+      // Upsert all records, collecting failures
       for (const record of allRecords) {
         try {
-          console.log(`[CSVImport] Upserting: id="${record.id}" week="${record.week}" unit="${record.unit}" total=${record.total} stored=${record.stored} valid=${record.valid}`);
           await upsertOne({
             unit: record.unit,
             id: record.id,
@@ -175,263 +205,205 @@ export default function CSVImportSection() {
             total: record.total,
             stored: record.stored,
             valid: record.valid,
+            storedPkts: record.storedPkts,
+            normalPkts: record.normalPkts,
           });
-          console.log(`[CSVImport] ✓ Upserted: ${record.id} / ${record.week}`);
           successCount++;
         } catch (err) {
-          const errMsg = err instanceof Error ? err.message : String(err);
-          console.error(`[CSVImport] ✗ Failed to upsert ${record.id} for ${record.week}:`, err);
-          toast.error(
-            `Failed to import "${record.id}" (${record.week}) from "${record.fileName}": ${errMsg}`
-          );
-          errorCount++;
+          const { reason, isCanisterStopped } = getReadableErrorReason(err);
+          failures.push({ id: record.id, week: record.week, reason, isCanisterStopped });
         }
       }
 
-      // Invalidate cache ONCE after all upserts complete
+      // Invalidate queries after all upserts
       if (successCount > 0) {
-        console.log(`[CSVImport] All upserts done. Invalidating reports cache...`);
-        await invalidate();
-        console.log(`[CSVImport] Cache invalidated. ${successCount} records imported.`);
-        toast.success(`Successfully imported ${successCount} device${successCount !== 1 ? 's' : ''}`);
-        setParsedFiles([]);
-        if (fileInputRef.current) fileInputRef.current.value = '';
+        invalidate();
       }
 
-      if (errorCount > 0 && successCount === 0) {
-        toast.error(`All ${errorCount} record${errorCount !== 1 ? 's' : ''} failed to import`);
-      } else if (errorCount > 0) {
-        toast.warning(`${errorCount} record${errorCount !== 1 ? 's' : ''} failed to import`);
+      // Emit a single consolidated summary toast
+      if (failures.length === 0 && successCount > 0) {
+        toast.success(`Successfully imported ${successCount} unit record${successCount !== 1 ? 's' : ''}`);
+        setParsedFiles([]);
+      } else if (failures.length > 0 && successCount > 0) {
+        const canisterStopped = failures.some(f => f.isCanisterStopped);
+        if (canisterStopped) {
+          toast.error(
+            `Imported ${successCount} record${successCount !== 1 ? 's' : ''}, but ${failures.length} failed because the backend service is currently stopped. Please try again later.`
+          );
+        } else {
+          toast.error(
+            `Imported ${successCount} record${successCount !== 1 ? 's' : ''}, but ${failures.length} failed. Check the console for details.`
+          );
+        }
+        setParsedFiles([]);
+      } else if (failures.length > 0 && successCount === 0) {
+        const canisterStopped = failures.some(f => f.isCanisterStopped);
+        if (canisterStopped) {
+          toast.error('Import failed: the backend service is currently stopped. Please try again later.');
+        } else {
+          toast.error(`All ${failures.length} record${failures.length !== 1 ? 's' : ''} failed to import. Check the console for details.`);
+        }
+      } else {
+        toast.warning('No records were found to import. Check that your files have valid data.');
       }
     } finally {
       setIsImporting(false);
     }
   };
 
-  // Total importable records (1 per file since each file = 1 device unit)
-  const totalRows = parsedFiles.reduce((sum, f) => sum + f.result.rows.length, 0);
-
-  // Helper to get total GPS packets for display
-  const getTotalGps = (row: ParsedRow) => row.totalGpsPackets ?? row.validGpsFixPkts;
-
-  // Resolve the effective week for a row (for display in the preview card)
-  const resolveWeekForDisplay = (row: ParsedRow, result: ParseResult): string => {
-    return (row.weekYear && row.weekYear.trim())
-      || (result.weekYear && result.weekYear.trim())
-      || defaultWeek
-      || '—';
-  };
+  const totalRecords = parsedFiles.reduce((sum, f) => sum + f.result.rows.length, 0);
+  const hasErrors = parsedFiles.some(f => f.result.errors.length > 0);
 
   return (
     <div className="space-y-4">
-      {/* Drop Zone */}
+      {/* Week override input */}
+      <div className="flex items-center gap-3 p-3 bg-card border border-border rounded-lg">
+        <span className="text-xs text-muted-foreground uppercase tracking-wide font-medium whitespace-nowrap">
+          Default Week
+        </span>
+        <input
+          type="text"
+          value={defaultWeek}
+          onChange={e => setDefaultWeek(e.target.value)}
+          placeholder="e.g. 2024-W12"
+          className="flex-1 h-8 px-3 bg-secondary border border-border rounded font-mono text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+        />
+        <span className="text-xs text-muted-foreground">
+          Used when week cannot be detected from file
+        </span>
+      </div>
+
+      {/* Drop zone */}
       <div
-        className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors cursor-pointer ${
-          isDragging
-            ? 'border-amber-400 bg-amber-400/10'
-            : 'border-navy-600 hover:border-amber-400/50 hover:bg-navy-800/50'
-        }`}
-        onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+        onDragOver={e => { e.preventDefault(); setIsDragging(true); }}
         onDragLeave={() => setIsDragging(false)}
         onDrop={handleDrop}
         onClick={() => fileInputRef.current?.click()}
+        className={`
+          border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors
+          ${isDragging
+            ? 'border-primary bg-primary/10'
+            : 'border-border hover:border-primary/50 hover:bg-secondary/30'
+          }
+        `}
       >
         <input
           ref={fileInputRef}
           type="file"
-          accept=".csv,.xls,.xlsx"
+          accept=".csv,.tsv,.xls,.xlsx"
           multiple
-          className="hidden"
           onChange={handleFileInput}
+          className="hidden"
         />
-        <Upload className="mx-auto mb-3 text-amber-400" size={32} />
-        <p className="text-sm font-medium text-foreground">Drop GPS report files here</p>
-        <p className="text-xs text-muted-foreground mt-1">Supports CSV, XLS, XLSX • Multiple files allowed</p>
-        <p className="text-xs text-muted-foreground mt-0.5">
-          File name is used as the Unit ID (e.g.{' '}
-          <span className="text-amber-400 font-mono">S10002.xls</span> → Unit{' '}
-          <span className="text-amber-400 font-mono">S10002</span>)
-        </p>
+        <Upload className="w-8 h-8 mx-auto mb-3 text-muted-foreground" />
+        <p className="text-sm font-medium text-foreground">Drop files here or click to browse</p>
+        <p className="text-xs text-muted-foreground mt-1">Supports CSV, TSV, XLS, XLSX (Waggle portal exports)</p>
       </div>
 
-      {/* Parsed Files */}
+      {/* Parsed files list */}
       {parsedFiles.length > 0 && (
-        <div className="space-y-3">
+        <div className="space-y-2">
           {parsedFiles.map((entry, index) => {
-            const { result, fileName } = entry;
             const isExpanded = expandedFiles.has(index);
-            const hasRows = result.rows.length > 0;
-            // Unit ID is ALWAYS the filename without extension
-            const unitId = getUnitIdFromFileName(fileName);
+            const hasFileErrors = entry.result.errors.length > 0;
+            const rowCount = entry.result.rows.length;
 
             return (
-              <div key={index} className="bg-navy-800 border border-navy-600 rounded-lg overflow-hidden">
-                {/* File Header */}
-                <div className="flex items-center justify-between p-3">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <FileText size={16} className="text-amber-400 shrink-0" />
-                    <div className="min-w-0">
-                      {/* Unit ID (filename stem) as primary label */}
-                      <span className="text-sm font-semibold text-foreground truncate block">{unitId}</span>
-                      <span className="text-xs text-muted-foreground truncate block">{fileName}</span>
-                    </div>
-                    {hasRows ? (
-                      <Badge variant="secondary" className="text-xs shrink-0">1 unit</Badge>
-                    ) : (
-                      <Badge variant="destructive" className="text-xs shrink-0">No data</Badge>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    {hasRows && (
-                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => toggleExpand(index)}>
-                        {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                      </Button>
-                    )}
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                      onClick={() => removeFile(index)}
-                    >
-                      <X size={14} />
-                    </Button>
-                  </div>
+              <div key={index} className="border border-border rounded-lg overflow-hidden">
+                <div className="flex items-center gap-3 px-4 py-3 bg-secondary/30">
+                  <FileText className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                  <span className="text-sm font-mono font-medium flex-1 truncate">{entry.fileName}</span>
+
+                  {hasFileErrors ? (
+                    <Badge className="bg-destructive/20 text-destructive border-destructive/30 text-xs gap-1">
+                      <AlertCircle className="w-3 h-3" />
+                      Error
+                    </Badge>
+                  ) : (
+                    <Badge className="bg-green-500/20 text-green-400 border-green-500/30 text-xs gap-1">
+                      <CheckCircle className="w-3 h-3" />
+                      {rowCount} record{rowCount !== 1 ? 's' : ''}
+                    </Badge>
+                  )}
+
+                  {entry.result.weekYear && (
+                    <Badge variant="outline" className="font-mono text-xs border-primary/30 text-primary">
+                      {entry.result.weekYear}
+                    </Badge>
+                  )}
+
+                  <button
+                    onClick={() => toggleExpand(index)}
+                    className="text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                  </button>
+
+                  <button
+                    onClick={() => removeFile(index)}
+                    className="text-muted-foreground hover:text-destructive transition-colors"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
                 </div>
 
-                {/* Gateway Details */}
-                {(result.gatewayName || result.startDate || result.endDate || result.weekYear) && (
-                  <div className="px-3 pb-2 flex flex-wrap gap-3 text-xs text-muted-foreground border-t border-navy-600 pt-2">
-                    {result.gatewayName && (
-                      <span>Gateway: <span className="text-foreground">{result.gatewayName}</span></span>
-                    )}
-                    {result.startDate && (
-                      <span>From: <span className="text-foreground">{result.startDate}</span></span>
-                    )}
-                    {result.endDate && (
-                      <span>To: <span className="text-foreground">{result.endDate}</span></span>
-                    )}
-                    {result.weekYear
-                      ? <span>Week: <span className="text-amber-400 font-medium">{result.weekYear}</span></span>
-                      : <span>Week: <span className="text-amber-400/60 font-medium">{defaultWeek} (default)</span></span>
-                    }
-                  </div>
-                )}
-
-                {/* Aggregate Stats — single device unit totals */}
-                {hasRows && (
-                  <div className="px-3 pb-3 grid grid-cols-3 gap-2">
-                    <div className="bg-navy-900 rounded p-2 text-center">
-                      <div className="text-lg font-bold text-amber-400">
-                        {result.rows.reduce((s, r) => s + r.totalPkts, 0).toLocaleString()}
-                      </div>
-                      <div className="text-xs text-muted-foreground">Total Pkts</div>
-                    </div>
-                    <div className="bg-navy-900 rounded p-2 text-center">
-                      <div className="text-lg font-bold text-blue-400">
-                        {result.rows.reduce((s, r) => s + r.storedPkts, 0).toLocaleString()}
-                      </div>
-                      <div className="text-xs text-muted-foreground">Stored</div>
-                    </div>
-                    <div className="bg-navy-900 rounded p-2 text-center">
-                      <div className="text-lg font-bold text-emerald-400">
-                        {result.rows.reduce((s, r) => s + r.validGpsFixPkts, 0).toLocaleString()}
-                      </div>
-                      <div className="text-xs text-muted-foreground">Valid GPS</div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Errors */}
-                {result.errors && result.errors.length > 0 && (
-                  <div className="px-3 pb-3">
-                    {result.errors.map((err, ei) => (
-                      <div key={ei} className="flex items-center gap-1.5 text-xs text-destructive">
-                        <AlertCircle size={12} />
-                        <span>{err}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Expanded Row Preview — shows the single aggregated device record */}
-                {isExpanded && hasRows && (
-                  <div className="border-t border-navy-600 overflow-x-auto">
-                    <table className="w-full text-xs">
-                      <thead>
-                        <tr className="bg-navy-900">
-                          <th className="px-3 py-2 text-left text-muted-foreground">Unit ID</th>
-                          <th className="px-3 py-2 text-left text-muted-foreground">Week</th>
-                          <th className="px-3 py-2 text-left text-muted-foreground">Model</th>
-                          <th className="px-3 py-2 text-right text-muted-foreground">Total</th>
-                          <th className="px-3 py-2 text-right text-muted-foreground">Stored</th>
-                          <th className="px-3 py-2 text-right text-muted-foreground">Valid GPS</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {result.rows.map((row, ri) => (
-                          <tr key={ri} className="border-t border-navy-700">
-                            {/* Always show the filename-derived unit ID, never file content */}
-                            <td className="px-3 py-1.5 font-mono text-amber-400">{unitId}</td>
-                            <td className="px-3 py-1.5">{resolveWeekForDisplay(row, result)}</td>
-                            <td className="px-3 py-1.5">{row.model || defaultModel}</td>
-                            <td className="px-3 py-1.5 text-right">{row.totalPkts.toLocaleString()}</td>
-                            <td className="px-3 py-1.5 text-right">{row.storedPkts.toLocaleString()}</td>
-                            <td className="px-3 py-1.5 text-right">{getTotalGps(row).toLocaleString()}</td>
-                          </tr>
+                {isExpanded && (
+                  <div className="px-4 py-3 border-t border-border bg-card text-xs space-y-2">
+                    {hasFileErrors ? (
+                      <div className="space-y-1">
+                        {entry.result.errors.map((err, i) => (
+                          <p key={i} className="text-destructive">{err}</p>
                         ))}
-                      </tbody>
-                    </table>
+                      </div>
+                    ) : (
+                      <div className="space-y-1">
+                        {entry.result.gatewayName && (
+                          <p className="text-muted-foreground">Gateway: <span className="text-foreground font-mono">{entry.result.gatewayName}</span></p>
+                        )}
+                        {entry.result.startDate && (
+                          <p className="text-muted-foreground">Period: <span className="text-foreground font-mono">{entry.result.startDate}{entry.result.endDate ? ` → ${entry.result.endDate}` : ''}</span></p>
+                        )}
+                        {entry.result.rows.map((row: ParsedRow, i: number) => (
+                          <div key={i} className="font-mono text-foreground">
+                            <span className="text-primary">{row.unitId}</span>
+                            {' · '}Total: {row.totalPkts}
+                            {' · '}Normal: {row.normalPktCount ?? 0}
+                            {' · '}Stored: {row.storedPkts}
+                            {' · '}Valid GPS: {row.validGpsFixPkts}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
             );
           })}
+        </div>
+      )}
 
-          {/* Default Overrides */}
-          <div className="bg-navy-800 border border-navy-600 rounded-lg p-3 space-y-3">
-            <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">
-              Default Overrides (used when not detected from file)
-            </p>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs text-muted-foreground mb-1 block">Default Model</label>
-                <select
-                  value={defaultModel}
-                  onChange={e => setDefaultModel(e.target.value as UnitModel)}
-                  className="w-full bg-navy-900 border border-navy-600 rounded px-2 py-1.5 text-sm text-foreground"
-                >
-                  {MODEL_OPTIONS.map(m => <option key={m} value={m}>{m}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="text-xs text-muted-foreground mb-1 block">Default Week</label>
-                <input
-                  type="text"
-                  placeholder="e.g. 2026-W09"
-                  value={defaultWeek}
-                  onChange={e => setDefaultWeek(e.target.value)}
-                  className="w-full bg-navy-900 border border-navy-600 rounded px-2 py-1.5 text-sm text-foreground placeholder:text-muted-foreground"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Import Button */}
+      {/* Import button */}
+      {parsedFiles.length > 0 && (
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-muted-foreground">
+            {totalRecords} record{totalRecords !== 1 ? 's' : ''} ready to import
+            {hasErrors && <span className="text-destructive ml-2">(some files have errors)</span>}
+          </p>
           <Button
-            className="w-full"
             onClick={handleImport}
-            disabled={isImporting || totalRows === 0}
+            disabled={isImporting || totalRecords === 0}
+            className="bg-primary text-primary-foreground hover:bg-primary/90 gap-2"
           >
             {isImporting ? (
-              <span className="flex items-center gap-2">
-                <span className="animate-spin rounded-full h-4 w-4 border-2 border-current border-t-transparent" />
+              <>
+                <Upload className="w-4 h-4 animate-pulse" />
                 Importing...
-              </span>
+              </>
             ) : (
-              <span className="flex items-center gap-2">
-                <CheckCircle size={16} />
-                Import {parsedFiles.length} Device{parsedFiles.length !== 1 ? 's' : ''}
-              </span>
+              <>
+                <Upload className="w-4 h-4" />
+                Import {totalRecords} Record{totalRecords !== 1 ? 's' : ''}
+              </>
             )}
           </Button>
         </div>

@@ -12,8 +12,10 @@ export interface ReportEntry {
     validGpsFixPkts: bigint;
     weekYear: string;
     unitId: string;
+    normalPktCount: bigint;
     totalPkts: bigint;
     storedPkts: bigint;
+    storedPktCount: bigint;
 }
 export enum UnitModel {
     N13 = "N13",
@@ -23,5 +25,5 @@ export enum UnitModel {
 export interface backendInterface {
     getAllReports(): Promise<Array<ReportEntry>>;
     getReport(unitId: string, weekYear: string): Promise<ReportEntry | null>;
-    upsertReport(unit: UnitModel, id: string, week: string, total: bigint, stored: bigint, valid: bigint): Promise<void>;
+    upsertReport(unit: UnitModel, id: string, week: string, total: bigint, stored: bigint, valid: bigint, storedPkts: bigint, normalPkts: bigint): Promise<void>;
 }

@@ -4,12 +4,16 @@ import { useGetAllReports, getISOWeekLabel, MODEL_LABELS, ALL_MODELS } from '@/h
 import { WeekNavigator } from '@/components/WeekNavigator';
 import { ModelSummaryCard } from '@/components/ModelSummaryCard';
 import { UnitModel } from '@/backend';
+import { filterValidEntries } from '@/utils/reportFilters';
 
 export default function DashboardPage() {
-  const { data: reports = [], isLoading } = useGetAllReports();
+  const { data: rawReports = [], isLoading } = useGetAllReports();
   const [currentWeek, setCurrentWeek] = useState(getISOWeekLabel());
 
-  // Derive available weeks from reports
+  // Apply the same validity filter as the report page
+  const reports = filterValidEntries(rawReports);
+
+  // Derive available weeks from valid reports
   const availableWeeks = Array.from(new Set(reports.map(r => r.weekYear))).sort();
 
   // Auto-select the most recent available week if current week has no data
@@ -20,16 +24,14 @@ export default function DashboardPage() {
         ? availableWeeks[availableWeeks.length - 1]
         : currentWeek;
 
-  // Filter reports for current week
+  // Filter valid reports for the selected week
   const weekReports = reports.filter(r => r.weekYear === effectiveWeek);
 
-  // Aggregate stats
-  const totalUnits = weekReports.length;
+  // Aggregate stats — count distinct unit IDs
+  const totalUnits = new Set(weekReports.map(r => r.unitId)).size;
   const totalPackets = weekReports.reduce((s, r) => s + Number(r.totalPkts), 0);
   const validGpsPkts = weekReports.reduce((s, r) => s + Number(r.validGpsFixPkts), 0);
   const gpsFixRate = totalPackets > 0 ? ((validGpsPkts / totalPackets) * 100).toFixed(1) : '0.0';
-
-  console.log('[DashboardPage] reports:', reports.length, 'effectiveWeek:', effectiveWeek, 'weekReports:', weekReports.length);
 
   return (
     <div className="space-y-6">

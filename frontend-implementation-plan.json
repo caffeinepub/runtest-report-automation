@@ -1,22 +1,27 @@
 {
   "kind": "implementation_plan",
   "version": "1.0",
-  "title": "Fix CSV/XLS import failure — all records failing to upsert to backend",
+  "title": "Fix Stored Packet Count Parsing from PktState Column",
   "requirements": [
     {
       "id": "REQ-1",
-      "summary": "Fix import failure in CSVImportSection where all parsed records fail to upsert to the backend, add detailed per-record error logging, and ensure error toast messages include specific backend error reasons",
+      "summary": "Fix CSV parser to correctly extract Stored packet count from the PktState column by counting rows where PktState equals 'Stored', and update the import section to submit the parsed storedPkts value to the backend",
       "acceptanceCriteria": [
-        "Importing valid XLS files with unit IDs like S10026_PRD, S10006-PRD, S10002-PRD for week 2026-W09 successfully upserts records to the backend without error",
-        "The 'All N records failed to import' toast no longer appears for valid files",
-        "If a record does fail, the error toast includes the specific backend error message (not just the unit ID and filename)",
-        "Successfully imported records appear on the Dashboard page under the correct week"
+        "When a file is uploaded with a 'PktState' column containing 'Normal' and 'Stored' values, the parser correctly counts rows where PktState is 'Stored' and assigns that value to storedPkts.",
+        "The STORED PKTS column in the Weekly Reports table shows non-zero values matching the actual count of 'Stored' state packets from the uploaded file.",
+        "Normal + Stored packet counts sum to equal the Total packets hit count.",
+        "Existing Normal packet count parsing remains correct and unaffected."
       ],
       "file_operations": [
         {
+          "path": "frontend/src/utils/csvParser.ts",
+          "operation": "modify",
+          "description": "Update the parseCSV function to count rows where PktState column equals 'Stored' (case-insensitive) and assign that count to the storedPkts field in the parsed output. Currently storedPkts is always set to totalPkts (which is incorrect). The correct logic is: count rows where row[pktStateCol] === 'Stored' and set that as storedPkts. Ensure normalPkts continues to count rows where PktState is 'Normal', and that totalPkts represents the total row count (Normal + Stored)."
+        },
+        {
           "path": "frontend/src/components/CSVImportSection.tsx",
           "operation": "modify",
-          "description": "Investigate and fix the backend upsert failure by examining how the component calls the upsertReport mutation. Add detailed console logging before each upsert attempt (logging unitId, weekYear, model, totalPkts, storedPkts, validGpsFixPkts). Ensure the unit ID format matches what the backend expects (check for extra spaces, case sensitivity, or character encoding issues). Verify that the model enum value from the selector matches the UnitModel type exactly. Ensure weekYear is in the correct ISO week format (YYYY-Www). Capture and log the specific error thrown by the backend actor during upsert, then include that error message in the toast notification so users see the root cause (not just 'All N records failed to import'). Test with the provided sample files (S10026_PRD.xls, S10006-PRD.xls, S10002-PRD.xls) to confirm successful import and verify records appear on the Dashboard under week 2026-W09."
+          "description": "Update the handleImport function to pass the parsed storedPkts value (in addition to the existing normalPkts) when calling upsertReport. Currently the function may not be passing storedPkts correctly to the backend. Verify that both storedPkts and normalPkts are included in the upsertReport call parameters and match the backend interface signature (unit, id, week, total, stored, valid, storedPkts, normalPkts)."
         }
       ]
     }

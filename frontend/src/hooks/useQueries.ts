@@ -110,9 +110,20 @@ export function useUpsertReport() {
       total: bigint;
       stored: bigint;
       valid: bigint;
+      storedPkts?: bigint;
+      normalPkts?: bigint;
     }) => {
       if (!actor) throw new Error('Actor not initialized');
-      await actor.upsertReport(params.unit, params.id, params.week, params.total, params.stored, params.valid);
+      await actor.upsertReport(
+        params.unit,
+        params.id,
+        params.week,
+        params.total,
+        params.stored,
+        params.valid,
+        params.storedPkts ?? BigInt(0),
+        params.normalPkts ?? BigInt(0),
+      );
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['reports'] });
@@ -120,11 +131,11 @@ export function useUpsertReport() {
   });
 }
 
-// Keep legacy aliases so any code that imports useCreateReport / useUpdateReport still compiles
+// Keep legacy aliases so any code that imports useCreateReport / useUpdateReport still works
 export const useCreateReport = useUpsertReport;
 export const useUpdateReport = useUpsertReport;
 
-// ── Direct upsert helper (for bulk imports without mutation hook) ──────────────
+// ── Direct upsert (used by CSV import) ───────────────────────────────────────
 
 export function useDirectUpsert() {
   const { actor } = useActor();
@@ -137,22 +148,24 @@ export function useDirectUpsert() {
     total: bigint;
     stored: bigint;
     valid: bigint;
+    storedPkts?: bigint;
+    normalPkts?: bigint;
   }) => {
     if (!actor) throw new Error('Actor not initialized');
-    console.log(`[useDirectUpsert] Calling actor.upsertReport:`, {
-      unit: params.unit,
-      id: params.id,
-      week: params.week,
-      total: params.total.toString(),
-      stored: params.stored.toString(),
-      valid: params.valid.toString(),
-    });
-    await actor.upsertReport(params.unit, params.id, params.week, params.total, params.stored, params.valid);
+    await actor.upsertReport(
+      params.unit,
+      params.id,
+      params.week,
+      params.total,
+      params.stored,
+      params.valid,
+      params.storedPkts ?? BigInt(0),
+      params.normalPkts ?? BigInt(0),
+    );
   };
 
   const invalidate = () => {
-    console.log('[useDirectUpsert] Invalidating reports cache');
-    return queryClient.invalidateQueries({ queryKey: ['reports'] });
+    queryClient.invalidateQueries({ queryKey: ['reports'] });
   };
 
   return { upsertOne, invalidate };

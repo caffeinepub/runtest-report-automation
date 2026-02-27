@@ -94,8 +94,10 @@ export interface ReportEntry {
     validGpsFixPkts: bigint;
     weekYear: string;
     unitId: string;
+    normalPktCount: bigint;
     totalPkts: bigint;
     storedPkts: bigint;
+    storedPktCount: bigint;
 }
 export enum UnitModel {
     N13 = "N13",
@@ -105,7 +107,7 @@ export enum UnitModel {
 export interface backendInterface {
     getAllReports(): Promise<Array<ReportEntry>>;
     getReport(unitId: string, weekYear: string): Promise<ReportEntry | null>;
-    upsertReport(unit: UnitModel, id: string, week: string, total: bigint, stored: bigint, valid: bigint): Promise<void>;
+    upsertReport(unit: UnitModel, id: string, week: string, total: bigint, stored: bigint, valid: bigint, storedPkts: bigint, normalPkts: bigint): Promise<void>;
 }
 import type { ReportEntry as _ReportEntry, UnitModel as _UnitModel } from "./declarations/backend.did.d.ts";
 export class Backend implements backendInterface {
@@ -138,17 +140,17 @@ export class Backend implements backendInterface {
             return from_candid_opt_n6(this._uploadFile, this._downloadFile, result);
         }
     }
-    async upsertReport(arg0: UnitModel, arg1: string, arg2: string, arg3: bigint, arg4: bigint, arg5: bigint): Promise<void> {
+    async upsertReport(arg0: UnitModel, arg1: string, arg2: string, arg3: bigint, arg4: bigint, arg5: bigint, arg6: bigint, arg7: bigint): Promise<void> {
         if (this.processError) {
             try {
-                const result = await this.actor.upsertReport(to_candid_UnitModel_n7(this._uploadFile, this._downloadFile, arg0), arg1, arg2, arg3, arg4, arg5);
+                const result = await this.actor.upsertReport(to_candid_UnitModel_n7(this._uploadFile, this._downloadFile, arg0), arg1, arg2, arg3, arg4, arg5, arg6, arg7);
                 return result;
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.upsertReport(to_candid_UnitModel_n7(this._uploadFile, this._downloadFile, arg0), arg1, arg2, arg3, arg4, arg5);
+            const result = await this.actor.upsertReport(to_candid_UnitModel_n7(this._uploadFile, this._downloadFile, arg0), arg1, arg2, arg3, arg4, arg5, arg6, arg7);
             return result;
         }
     }
@@ -167,23 +169,29 @@ function from_candid_record_n3(_uploadFile: (file: ExternalBlob) => Promise<Uint
     validGpsFixPkts: bigint;
     weekYear: string;
     unitId: string;
+    normalPktCount: bigint;
     totalPkts: bigint;
     storedPkts: bigint;
+    storedPktCount: bigint;
 }): {
     unitModel: UnitModel;
     validGpsFixPkts: bigint;
     weekYear: string;
     unitId: string;
+    normalPktCount: bigint;
     totalPkts: bigint;
     storedPkts: bigint;
+    storedPktCount: bigint;
 } {
     return {
         unitModel: from_candid_UnitModel_n4(_uploadFile, _downloadFile, value.unitModel),
         validGpsFixPkts: value.validGpsFixPkts,
         weekYear: value.weekYear,
         unitId: value.unitId,
+        normalPktCount: value.normalPktCount,
         totalPkts: value.totalPkts,
-        storedPkts: value.storedPkts
+        storedPkts: value.storedPkts,
+        storedPktCount: value.storedPktCount
     };
 }
 function from_candid_variant_n5(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {

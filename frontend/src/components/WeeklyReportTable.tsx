@@ -43,8 +43,9 @@ export function WeeklyReportTable({ entries, isLoading, selectedModel, selectedW
     const totalPkts = sortedEntries.reduce((s, e) => s + Number(e.totalPkts), 0);
     const storedPkts = sortedEntries.reduce((s, e) => s + Number(e.storedPkts), 0);
     const validGpsPkts = sortedEntries.reduce((s, e) => s + Number(e.validGpsFixPkts), 0);
+    const normalPkts = sortedEntries.reduce((s, e) => s + Number(e.normalPktCount), 0);
     const gpsFixPct = totalPkts > 0 ? (validGpsPkts / totalPkts) * 100 : 0;
-    return { totalPkts, storedPkts, validGpsPkts, gpsFixPct };
+    return { totalPkts, storedPkts, validGpsPkts, normalPkts, gpsFixPct };
   }, [sortedEntries]);
 
   if (isLoading) {
@@ -77,6 +78,7 @@ export function WeeklyReportTable({ entries, isLoading, selectedModel, selectedW
               <TableHead className="text-xs text-muted-foreground uppercase tracking-wide">Model</TableHead>
             )}
             <TableHead className="text-xs text-muted-foreground uppercase tracking-wide text-right">Total Pkts</TableHead>
+            <TableHead className="text-xs text-muted-foreground uppercase tracking-wide text-right">Normal Pkts</TableHead>
             <TableHead className="text-xs text-muted-foreground uppercase tracking-wide text-right">Stored Pkts</TableHead>
             <TableHead className="text-xs text-muted-foreground uppercase tracking-wide text-right">Valid GPS Pkts</TableHead>
             <TableHead className="text-xs text-muted-foreground uppercase tracking-wide text-right">GPS Fix %</TableHead>
@@ -88,6 +90,7 @@ export function WeeklyReportTable({ entries, isLoading, selectedModel, selectedW
             const total = Number(entry.totalPkts);
             const stored = Number(entry.storedPkts);
             const valid = Number(entry.validGpsFixPkts);
+            const normal = Number(entry.normalPktCount);
             const gpsFixPct = total > 0 ? (valid / total) * 100 : 0;
             const storedPct = total > 0 ? (stored / total) * 100 : 0;
 
@@ -104,6 +107,7 @@ export function WeeklyReportTable({ entries, isLoading, selectedModel, selectedW
                   </TableCell>
                 )}
                 <TableCell className="data-table-cell text-right">{total.toLocaleString()}</TableCell>
+                <TableCell className="data-table-cell text-right">{normal.toLocaleString()}</TableCell>
                 <TableCell className="data-table-cell text-right">{stored.toLocaleString()}</TableCell>
                 <TableCell className="data-table-cell text-right">{valid.toLocaleString()}</TableCell>
                 <TableCell className="text-right">
@@ -124,6 +128,9 @@ export function WeeklyReportTable({ entries, isLoading, selectedModel, selectedW
             {selectedModel === 'ALL' && <TableCell />}
             <TableCell className="data-table-cell text-right text-primary">
               {totals.totalPkts.toLocaleString()}
+            </TableCell>
+            <TableCell className="data-table-cell text-right text-primary">
+              {totals.normalPkts.toLocaleString()}
             </TableCell>
             <TableCell className="data-table-cell text-right">
               {totals.storedPkts.toLocaleString()}
