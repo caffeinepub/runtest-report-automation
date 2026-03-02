@@ -1,14 +1,20 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Upload, PenLine, Info } from 'lucide-react';
 import { DataEntryForm } from '@/components/DataEntryForm';
-import CSVImportSection from '@/components/CSVImportSection';
+import { CSVImportSection } from '@/components/CSVImportSection';
 import { WeekNavigator } from '@/components/WeekNavigator';
 import { getISOWeekLabel } from '@/hooks/useQueries';
 
 const DataEntryPage: React.FC = () => {
   const [currentWeek, setCurrentWeek] = useState(() => getISOWeekLabel());
+
+  const handleImportSuccess = useCallback((importedWeek: string) => {
+    if (importedWeek) {
+      setCurrentWeek(importedWeek);
+    }
+  }, []);
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -49,12 +55,14 @@ const DataEntryPage: React.FC = () => {
             <CardHeader className="pb-3">
               <CardTitle className="text-base font-semibold">Import from File</CardTitle>
               <CardDescription className="text-xs">
-                Upload a Waggle Portal CSV or XLS export. The parser will automatically detect the format
-                and extract unit IDs, packet counts, and GPS data.
+                Upload a Waggle Portal CSV or XLS export. Select the Model and Flavour before uploading.
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <CSVImportSection selectedWeek={currentWeek} />
+              <CSVImportSection
+                selectedWeek={currentWeek}
+                onImportSuccess={handleImportSuccess}
+              />
             </CardContent>
           </Card>
 

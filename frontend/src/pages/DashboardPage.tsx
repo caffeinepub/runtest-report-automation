@@ -1,163 +1,197 @@
-import React from 'react';
-import { Card, CardContent } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Activity, Cpu, CheckCircle, HardDrive, Columns } from 'lucide-react';
-import { useGetAllReports, getISOWeekLabel } from '@/hooks/useQueries';
-import { filterValidEntries } from '@/utils/reportFilters';
-import { ModelSummaryCard } from '@/components/ModelSummaryCard';
-import { WeekNavigator } from '@/components/WeekNavigator';
-import { UnitModel } from '@/backend';
-import { useColumnMapping } from '@/hooks/useColumnMapping';
+import React, { useState, useEffect } from "react";
+import { useGetAllReports } from "../hooks/useQueries";
+import { WeekNavigator } from "../components/WeekNavigator";
+import { ModelSummaryCard } from "../components/ModelSummaryCard";
+import { filterValidEntries } from "../utils/reportFilters";
+import type { ReportEntry } from "../backend";
+import { Model } from "../backend";
 
-const DashboardPage: React.FC = () => {
-  const [currentWeek, setCurrentWeek] = React.useState(() => getISOWeekLabel());
-  const { data: rawReports = [], isLoading } = useGetAllReports();
-  const { selectedColumns } = useColumnMapping();
+const KPI_WEEKS = 4;
 
-  const allValid = filterValidEntries(rawReports);
-  const weekEntries = allValid.filter(e => e.weekYear === currentWeek);
+const MODEL_OPTIONS: { label: string; value: Model | "all" }[] = [
+  { label: "All Models", value: "all" },
+  { label: "N13.5", value: Model.N135 },
+  { label: "N13", value: Model.N13 },
+  { label: "N12.5", value: Model.N125 },
+];
 
-  const totalUnits = new Set(weekEntries.map(e => e.unitId)).size;
-  const totalPkts = weekEntries.reduce((s, e) => s + Number(e.totalPkts), 0);
-  const totalValid = weekEntries.reduce((s, e) => s + Number(e.validGpsFixPkts), 0);
-  const totalStored = weekEntries.reduce((s, e) => s + Number(e.storedPkts), 0);
+const MODEL_DISPLAY: Record<Model, string> = {
+  [Model.N135]: "N13.5",
+  [Model.N13]: "N13",
+  [Model.N125]: "N12.5",
+};
 
-  const models = [UnitModel.N135, UnitModel.N13, UnitModel.N125];
+function getWeekLabel(weekYear: string): string {
+  const [week, year] = weekYear.split("-");
+  return `W${week}/${year}`;
+}
+
+function computeKPIs(entries: ReportEntry[]) {
+  const total = entries.reduce((s, e) => s + Number(e.totalPkts), 0);
+  const stored = entries.reduce((s, e) => s + Number(e.storedPkts), 0);
+  const valid = entries.reduce((s, e) => s + Number(e.validGpsFixPkts), 0);
+  const normal = entries.reduce((s, e) => s + Number(e.normalPktCount), 0);
+  const storageRate = total > 0 ? ((stored / total) * 100).toFixed(1) : "0.0";
+  const gpsRate = total > 0 ? ((valid / total) * 100).toFixed(1) : "0.0";
+  return { total, stored, valid, normal, storageRate, gpsRate };
+}
+
+export default function DashboardPage() {
+  const { data: allReports = [], isLoading } = useGetAllReports();
+  const [selectedModelFilter, setSelectedModelFilter] = useState<Model | "all">("all");
+
+  // Apply the same filterValidEntries logic used in ReportPage — single source of truth
+  const validReports = filterValidEntries(allReports);
+
+  // Filter by selected model
+  const modelFilteredReports =
+    selectedModelFilter === "all"
+      ? validReports
+      : validReports.filter((e) => e.model === selectedModelFilter);
+
+  const availableWeeks = Array.from(
+    new Set(modelFilteredReports.map((e) => e.weekYear))
+  ).sort((a, b) => {
+    const [wa, ya] = a.split("-").map(Number);
+    const [wb, yb] = b.split("-").map(Number);
+    return ya !== yb ? ya - yb : wa - wb;
+  });
+
+  const [currentWeek, setCurrentWeek] = useState<string>("");
+
+  useEffect(() => {
+    if (!isLoading && availableWeeks.length > 0) {
+      const weekEntries = modelFilteredReports.filter((e) => e.weekYear === currentWeek);
+      if (weekEntries.length === 0) {
+        setCurrentWeek(availableWeeks[availableWeeks.length - 1]);
+      }
+    }
+  }, [isLoading, modelFilteredReports.length, selectedModelFilter]);
+
+  // Week-scoped entries — already filtered by filterValidEntries above
+  const weekEntries = modelFilteredReports.filter((e) => e.weekYear === currentWeek);
+
+  const recentWeeks = availableWeeks.slice(-KPI_WEEKS);
+  const recentEntries = modelFilteredReports.filter((e) => recentWeeks.includes(e.weekYear));
+  const kpis = computeKPIs(recentEntries);
+
+  // Models to show in summary cards
+  const modelsToShow: Model[] =
+    selectedModelFilter === "all"
+      ? [Model.N135, Model.N13, Model.N125]
+      : [selectedModelFilter];
 
   return (
-    <div className="space-y-6">
+    <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-4">
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
-          <p className="text-sm text-muted-foreground mt-1">GPS tracker packet report overview</p>
+          <p className="text-muted-foreground mt-1">
+            GPS tracker performance overview
+          </p>
         </div>
-        <WeekNavigator currentWeek={currentWeek} onWeekChange={setCurrentWeek} />
+
+        {/* Model Filter */}
+        <div className="flex items-center gap-2">
+          <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">
+            Model Filter
+          </label>
+          <select
+            value={selectedModelFilter}
+            onChange={(e) => {
+              setSelectedModelFilter(e.target.value as Model | "all");
+              setCurrentWeek("");
+            }}
+            className="bg-background border border-border rounded-lg px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+          >
+            {MODEL_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
-      {/* KPI cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card className="border-border/40 bg-card/60">
-          <CardContent className="pt-4 pb-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs text-muted-foreground">Total Units</p>
-                <p className="text-2xl font-bold text-foreground mt-1">
-                  {isLoading ? '—' : totalUnits}
-                </p>
-              </div>
-              <Cpu className="h-8 w-8 text-amber-400/60" />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-border/40 bg-card/60">
-          <CardContent className="pt-4 pb-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs text-muted-foreground">Total Packets</p>
-                <p className="text-2xl font-bold text-foreground mt-1">
-                  {isLoading ? '—' : totalPkts.toLocaleString()}
-                </p>
-              </div>
-              <Activity className="h-8 w-8 text-blue-400/60" />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-border/40 bg-card/60">
-          <CardContent className="pt-4 pb-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs text-muted-foreground">Valid GPS Fixes</p>
-                <p className="text-2xl font-bold text-foreground mt-1">
-                  {isLoading ? '—' : totalValid.toLocaleString()}
-                </p>
-              </div>
-              <CheckCircle className="h-8 w-8 text-green-400/60" />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-border/40 bg-card/60">
-          <CardContent className="pt-4 pb-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs text-muted-foreground">Stored Packets</p>
-                <p className="text-2xl font-bold text-foreground mt-1">
-                  {isLoading ? '—' : totalStored.toLocaleString()}
-                </p>
-              </div>
-              <HardDrive className="h-8 w-8 text-purple-400/60" />
-            </div>
-          </CardContent>
-        </Card>
+      {/* Week Navigator */}
+      <div className="mb-6">
+        <WeekNavigator
+          currentWeek={currentWeek}
+          onWeekChange={setCurrentWeek}
+          availableWeeks={availableWeeks}
+        />
       </div>
 
-      {/* Custom columns notice */}
-      {selectedColumns.length > 0 && (
-        <Card className="border-amber-500/20 bg-amber-500/5">
-          <CardContent className="pt-3 pb-3">
-            <div className="flex items-center gap-2 flex-wrap">
-              <Columns className="h-4 w-4 text-amber-400 shrink-0" />
-              <span className="text-xs text-amber-300 font-medium">
-                {selectedColumns.length} custom column{selectedColumns.length !== 1 ? 's' : ''} configured:
-              </span>
-              {selectedColumns.map(col => (
-                <Badge key={col} variant="outline" className="text-xs border-amber-500/30 text-amber-400/80 bg-amber-500/10">
-                  {col}
-                </Badge>
-              ))}
-              <span className="text-xs text-muted-foreground ml-1">
-                — visible in the Reports table
-              </span>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      {/* KPI Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+        <div className="p-4 rounded-xl bg-card border border-border">
+          <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Total Packets</p>
+          <p className="text-2xl font-bold text-foreground">{kpis.total.toLocaleString()}</p>
+          <p className="text-xs text-muted-foreground mt-1">Last {KPI_WEEKS} weeks</p>
+        </div>
+        <div className="p-4 rounded-xl bg-card border border-border">
+          <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Stored Packets</p>
+          <p className="text-2xl font-bold text-foreground">{kpis.stored.toLocaleString()}</p>
+          <p className="text-xs text-muted-foreground mt-1">Storage rate: {kpis.storageRate}%</p>
+        </div>
+        <div className="p-4 rounded-xl bg-card border border-border">
+          <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Valid GPS Fix</p>
+          <p className="text-2xl font-bold text-foreground">{kpis.valid.toLocaleString()}</p>
+          <p className="text-xs text-muted-foreground mt-1">GPS rate: {kpis.gpsRate}%</p>
+        </div>
+        <div className="p-4 rounded-xl bg-card border border-border">
+          <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Normal Packets</p>
+          <p className="text-2xl font-bold text-foreground">{kpis.normal.toLocaleString()}</p>
+          <p className="text-xs text-muted-foreground mt-1">Last {KPI_WEEKS} weeks</p>
+        </div>
+      </div>
 
-      {/* Per-model breakdown */}
-      <div>
-        <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-          By Model — {currentWeek}
+      {/* Model Summary Cards */}
+      <div className="mb-6">
+        <h2 className="text-lg font-semibold text-foreground mb-4">
+          Model Performance —{" "}
+          {currentWeek ? getWeekLabel(currentWeek) : "No week selected"}
+          {selectedModelFilter !== "all" && (
+            <span className="ml-2 text-sm font-normal text-primary">
+              ({MODEL_DISPLAY[selectedModelFilter]})
+            </span>
+          )}
         </h2>
         {isLoading ? (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {[1, 2, 3].map(i => (
-              <Card key={i} className="border-border/40 bg-card/60 animate-pulse">
-                <CardContent className="pt-6 pb-6">
-                  <div className="h-16 bg-muted/40 rounded" />
-                </CardContent>
-              </Card>
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="h-40 rounded-xl bg-muted/30 animate-pulse" />
             ))}
           </div>
+        ) : weekEntries.length === 0 ? (
+          <div className="text-center py-12 text-muted-foreground">
+            <p>No data available for this week{selectedModelFilter !== "all" ? ` and model ${MODEL_DISPLAY[selectedModelFilter]}` : ""}.</p>
+            {selectedModelFilter !== "all" && (
+              <button
+                onClick={() => setSelectedModelFilter("all")}
+                className="mt-2 text-sm text-primary hover:underline"
+              >
+                Show all models
+              </button>
+            )}
+          </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {models.map(model => (
-              <ModelSummaryCard
-                key={model}
-                model={model}
-                entries={weekEntries}
-              />
-            ))}
+          <div className={`grid grid-cols-1 gap-4 ${modelsToShow.length === 1 ? "md:grid-cols-1 max-w-md" : "md:grid-cols-3"}`}>
+            {modelsToShow.map((model) => {
+              // Pass only the week-scoped, validity-filtered entries for this model
+              const modelEntries = weekEntries.filter((e) => e.model === model);
+              return (
+                <ModelSummaryCard
+                  key={model}
+                  model={MODEL_DISPLAY[model]}
+                  entries={modelEntries}
+                />
+              );
+            })}
           </div>
         )}
       </div>
-
-      {/* Empty state */}
-      {!isLoading && weekEntries.length === 0 && (
-        <Card className="border-border/40 bg-card/60">
-          <CardContent className="py-12 text-center">
-            <Activity className="h-12 w-12 mx-auto text-muted-foreground/40 mb-3" />
-            <p className="text-sm text-muted-foreground">No data for {currentWeek}</p>
-            <p className="text-xs text-muted-foreground/60 mt-1">
-              Import a file or enter data manually on the Data Entry page.
-            </p>
-          </CardContent>
-        </Card>
-      )}
-    </div>
+    </main>
   );
-};
-
-export default DashboardPage;
+}

@@ -4,21 +4,22 @@
   "summary": "New project",
   "architectural_notes": [],
   "known_issues": [
-    "File import (CSV/XLS) is not working — user reported inability to import files"
+    "Flavour selected as AQI during upload shows as 'Premium' in reports — flavour value not being saved/read correctly",
+    "Unit count mismatch: uploading 4 files (4 units) shows as 3 units in reports — off-by-one or duplicate detection issue"
   ],
   "isFixRequest": true,
   "existing_features": [
     {
-      "id": "feature-fix-the-csv-xls-parser-so-that-unit-ids-are-correctly-resolved-from-the-address-column-in-waggle-portal-export-files-the-debug-panel-shows-unitid-address-not-found-for-every-row-even-though-col-25-is-mapped-to-address-and-the-header-row-is-correctly-detected-the-parser-must-locate-the-address-column-by-scanning-the-detected-header-row-for-the-keyword-address-case-insensitive-and-use-that-column-index-to-read-each-row-s-unit-id-rather-than-failing-silently-and-emitting-address-not-found",
-      "title": "Fix the CSV/XLS parser so that unit IDs are correctly resolved from the 'Address' column in Waggle Portal export files. The debug panel shows unitId='Address not found' for every row even though col 25 is mapped to 'Address' and the header row is correctly detected. The parser must locate the Address column by scanning the detected header row for the keyword 'Address' (case-insensitive) and use that column index to read each row's unit ID, rather than failing silently and emitting 'Address not found'.",
+      "id": "feature-fix-the-flavour-value-not-being-correctly-saved-or-read-during-csv-xls-import-when-the-user-selects-aqi-as-the-flavour-in-the-csvimportsection-selector-before-uploading-the-stored-reportentry-records-must-persist-aqi-as-the-flavour-not-default-to-or-be-overwritten-by-premium-the-flavour-shown-in-the-reports-table-must-exactly-match-what-was-selected-at-upload-time",
+      "title": "Fix the flavour value not being correctly saved or read during CSV/XLS import: when the user selects 'AQI' as the flavour in the CSVImportSection selector before uploading, the stored ReportEntry records must persist 'AQI' as the flavour — not default to or be overwritten by 'Premium'. The flavour shown in the Reports table must exactly match what was selected at upload time.",
       "reqIds": [
         "REQ-1"
       ],
       "version": 1
     },
     {
-      "id": "feature-audit-the-per-packet-event-log-aggregation-logic-in-csvparser-ts-to-ensure-that-total-stored-and-valid-packet-counts-are-computed-correctly-from-row-aggregation-after-the-address-column-fix-is-applied-if-the-counts-are-still-showing-aggregated-placeholders-rather-than-real-numbers-after-fixing-unit-id-resolution-ensure-the-aggregation-logic-runs-and-populates-numeric-values-before-records-are-submitted-to-the-backend",
-      "title": "Audit the per-packet event log aggregation logic in csvParser.ts to ensure that total, stored, and valid packet counts are computed correctly from row aggregation after the Address column fix is applied. If the counts are still showing 'aggregated' placeholders rather than real numbers after fixing unit ID resolution, ensure the aggregation logic runs and populates numeric values before records are submitted to the backend.",
+      "id": "feature-fix-the-unit-count-mismatch-in-reports-when-4-files-each-representing-1-distinct-unit-are-uploaded-4-files-4-units-the-reports-table-footer-must-show-totals-4-units-and-the-table-must-display-all-4-rows-currently-only-3-units-appear-indicating-either-an-off-by-one-error-in-distinct-unit-counting-a-duplicate-detection-false-positive-or-one-record-being-silently-dropped-during-batch-upsert",
+      "title": "Fix the unit count mismatch in Reports: when 4 files each representing 1 distinct unit are uploaded (4 files = 4 units), the Reports table footer must show 'Totals (4 units)' and the table must display all 4 rows. Currently only 3 units appear, indicating either an off-by-one error in distinct unit counting, a duplicate detection false positive, or one record being silently dropped during batch upsert.",
       "reqIds": [
         "REQ-2"
       ],

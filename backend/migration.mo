@@ -1,56 +1,80 @@
 import Map "mo:core/Map";
-import Nat "mo:core/Nat";
+import List "mo:core/List";
+import Text "mo:core/Text";
 
 module {
-  // Old report type without storedPkts.
-  type OldReportEntry = {
-    unitModel : {
-      #N135;
-      #N13;
-      #N125;
-    };
-    unitId : Text;
-    weekYear : Text;
-    totalPkts : Nat;
-    storedPkts : Nat;
-    validGpsFixPkts : Nat;
-    normalPktCount : Nat;
+  type FlavourOld = {
+    #standard;
+    #premium;
+    #deluxe;
+  };
+  type FlavourNew = {
+    #standard;
+    #premium;
+    #deluxe;
+    #aqi;
   };
 
-  // Old actor type
   type OldActor = {
-    reports : Map.Map<Text, OldReportEntry>;
-  };
-
-  // New report type with storedPkts field.
-  type NewReportEntry = {
-    unitModel : {
-      #N135;
-      #N13;
-      #N125;
+    reports : Map.Map<Text, {
+      model : {
+        #N135;
+        #N13;
+        #N125;
+      };
+      flavour : FlavourOld;
+      weekYear : Text;
+      unitId : Text;
+      totalPkts : Nat;
+      storedPkts : Nat;
+      validGpsFixPkts : Nat;
+      storedPktCount : Nat;
+      normalPktCount : Nat;
+      location : Text;
+    }>;
+    columnMapping : {
+      displayColumns : List.List<Text>;
     };
-    unitId : Text;
-    weekYear : Text;
-    totalPkts : Nat;
-    storedPkts : Nat;
-    validGpsFixPkts : Nat;
-    storedPktCount : Nat;
-    normalPktCount : Nat;
   };
 
-  // New actor type
   type NewActor = {
-    reports : Map.Map<Text, NewReportEntry>;
+    reports : Map.Map<Text, {
+      model : {
+        #N135;
+        #N13;
+        #N125;
+      };
+      flavour : FlavourNew;
+      weekYear : Text;
+      unitId : Text;
+      totalPkts : Nat;
+      storedPkts : Nat;
+      validGpsFixPkts : Nat;
+      storedPktCount : Nat;
+      normalPktCount : Nat;
+      location : Text;
+    }>;
+    columnMapping : {
+       displayColumns : List.List<Text>;
+    };
   };
 
-  // Migration function called by the main actor via the with-clause
   public func run(old : OldActor) : NewActor {
-    // Transform old entries to new entries (add storedPktCount with default 0)
-    let newReports = old.reports.map<Text, OldReportEntry, NewReportEntry>(
+    let newReports = old.reports.map<Text, {model : {#N135; #N13; #N125}; flavour : FlavourOld; weekYear : Text; unitId : Text; totalPkts : Nat; storedPkts : Nat; validGpsFixPkts : Nat; storedPktCount : Nat; normalPktCount : Nat; location : Text}, {model : {#N135; #N13; #N125}; flavour : FlavourNew; weekYear : Text; unitId : Text; totalPkts : Nat; storedPkts : Nat; validGpsFixPkts : Nat; storedPktCount : Nat; normalPktCount : Nat; location : Text}>(
       func(_key, oldReport) {
-        { oldReport with storedPktCount = 0 };
+        {
+          oldReport with
+          flavour = switch (oldReport.flavour) {
+            case (#standard) { #standard };
+            case (#premium) { #premium };
+            case (#deluxe) { #deluxe };
+          }
+        };
       }
     );
-    { reports = newReports };
+    {
+      old with
+      reports = newReports;
+    };
   };
 };

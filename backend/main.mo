@@ -3,18 +3,27 @@ import Text "mo:core/Text";
 import Nat "mo:core/Nat";
 import List "mo:core/List";
 import Iter "mo:core/Iter";
+import Set "mo:core/Set";
+import Migration "migration";
 
-
-
+(with migration = Migration.run)
 actor {
-  type UnitModel = {
+  type Model = {
     #N135;
     #N13;
     #N125;
   };
 
+  type Flavour = {
+    #standard;
+    #premium;
+    #deluxe;
+    #aqi;
+  };
+
   type ReportEntry = {
-    unitModel : UnitModel;
+    model : Model;
+    flavour : Flavour;
     weekYear : Text;
     unitId : Text;
     totalPkts : Nat;
@@ -22,6 +31,7 @@ actor {
     validGpsFixPkts : Nat;
     storedPktCount : Nat;
     normalPktCount : Nat;
+    location : Text;
   };
 
   type ColumnMapping = {
@@ -34,27 +44,41 @@ actor {
   };
 
   public shared ({ caller }) func upsertReport(
-    unit : UnitModel,
-    id : Text,
-    week : Text,
-    total : Nat,
-    stored : Nat,
-    valid : Nat,
+    model : Model,
+    flavour : Flavour,
+    unitId : Text,
+    weekYear : Text,
+    totalPkts : Nat,
     storedPkts : Nat,
-    normalPkts : Nat,
+    validGpsFixPkts : Nat,
+    storedPktCount : Nat,
+    normalPktCount : Nat,
+    location : Text,
   ) : async () {
-    let key = id.concat("-").concat(week);
+    let key = unitId.concat("-").concat(weekYear);
     let entry = {
-      unitModel = unit;
-      unitId = id;
-      weekYear = week;
-      totalPkts = total;
-      storedPkts = stored;
-      validGpsFixPkts = valid;
-      storedPktCount = storedPkts;
-      normalPktCount = normalPkts;
+      model;
+      flavour;
+      unitId;
+      weekYear;
+      totalPkts;
+      storedPkts;
+      validGpsFixPkts;
+      storedPktCount;
+      normalPktCount;
+      location;
     };
     reports.add(key, entry);
+  };
+
+  public shared ({ caller }) func upsertBatchReport(
+    entries : [
+      (Model, Flavour, Text, Text, Nat, Nat, Nat, Nat, Nat, Text)
+    ]
+  ) : async () {
+    for ((model, flavour, unitId, weekYear, totalPkts, storedPkts, validGpsFixPkts, storedPktCount, normalPktCount, location) in entries.values()) {
+      await upsertReport(model, flavour, unitId, weekYear, totalPkts, storedPkts, validGpsFixPkts, storedPktCount, normalPktCount, location);
+    };
   };
 
   public shared ({ caller }) func addDisplayColumn(columnName : Text) : async () {
@@ -80,5 +104,28 @@ actor {
 
   public query ({ caller }) func getAllReports() : async [ReportEntry] {
     reports.values().toArray();
+  };
+
+  public query ({ caller }) func getReportsByModel(model : Model) : async [ReportEntry] {
+    let filtered = reports.values().filter(
+      func(report) {
+        switch (model, report.model) {
+          case (#N135, #N135) { true };
+          case (#N13, #N13) { true };
+          case (#N125, #N125) { true };
+          case (_) { false };
+        };
+      }
+    );
+    filtered.toArray();
+  };
+  
+  // Return unique unit count for accurate reporting.
+  public query ({ caller }) func getUnitCount() : async Nat {
+    let uniqueUnits = Set.empty<Text>();
+    for (report in reports.values()) {
+      uniqueUnits.add(report.unitId);
+    };
+    uniqueUnits.size();
   };
 };

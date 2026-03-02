@@ -1,56 +1,57 @@
 {
   "kind": "build_request",
-  "title": "Fix CSV/XLS unit ID resolution — Address column not found",
+  "title": "Fix flavour mapping (AQI showing as Premium) and unit count off-by-one in reports",
   "projectName": "GPS Packet Tracker",
   "priority": "high",
   "requirements": [
     {
       "id": "REQ-1",
-      "text": "Fix the CSV/XLS parser so that unit IDs are correctly resolved from the 'Address' column in Waggle Portal export files. The debug panel shows unitId='Address not found' for every row even though col 25 is mapped to 'Address' and the header row is correctly detected. The parser must locate the Address column by scanning the detected header row for the keyword 'Address' (case-insensitive) and use that column index to read each row's unit ID, rather than failing silently and emitting 'Address not found'.",
-      "target": "frontend",
+      "text": "Fix the flavour value not being correctly saved or read during CSV/XLS import: when the user selects 'AQI' as the flavour in the CSVImportSection selector before uploading, the stored ReportEntry records must persist 'AQI' as the flavour — not default to or be overwritten by 'Premium'. The flavour shown in the Reports table must exactly match what was selected at upload time.",
+      "target": "both",
       "source": {
         "messageIds": [
-          "msg-1"
+          "msg-4"
         ],
         "quotes": [
-          "Unable to import the file",
-          "unitId='Address not found' total='aggregated' stored='aggregated' valid='aggregated' pktState='Normal'"
+          "Flavour selected as AQI and uploaded but in reports it shows as Premium"
         ]
       },
       "acceptanceCriteria": [
-        "Uploading the Waggle Portal XLS file no longer produces 'Address not found' unit IDs.",
-        "The debug panel shows actual unit ID values (e.g. device serial numbers) for the first 3 sample rows.",
-        "The '2648 rows will be skipped due to missing or invalid unit IDs' warning is resolved and valid records are found.",
-        "The 'No valid records found in the file' error message is no longer shown when a valid Waggle Portal export is imported.",
-        "Column mapping in the debug panel correctly identifies col 25 as 'Address' and reads non-empty values from it."
+        "Selecting 'AQI' flavour in CSVImportSection and uploading files results in all imported records storing 'AQI' as the flavour value in the backend.",
+        "The Reports table displays 'AQI' in the Flavour column for those records — not 'Premium' or any other value.",
+        "Other flavour selections (e.g., 'Premium', 'Others') are still saved and displayed correctly.",
+        "Re-uploading with a different flavour selection updates the flavour for affected records correctly."
       ]
     },
     {
       "id": "REQ-2",
-      "text": "Audit the per-packet event log aggregation logic in csvParser.ts to ensure that total, stored, and valid packet counts are computed correctly from row aggregation after the Address column fix is applied. If the counts are still showing 'aggregated' placeholders rather than real numbers after fixing unit ID resolution, ensure the aggregation logic runs and populates numeric values before records are submitted to the backend.",
-      "target": "frontend",
+      "text": "Fix the unit count mismatch in Reports: when 4 files each representing 1 distinct unit are uploaded (4 files = 4 units), the Reports table footer must show 'Totals (4 units)' and the table must display all 4 rows. Currently only 3 units appear, indicating either an off-by-one error in distinct unit counting, a duplicate detection false positive, or one record being silently dropped during batch upsert.",
+      "target": "both",
       "source": {
         "messageIds": [
-          "msg-1"
+          "msg-4"
         ],
         "quotes": [
-          "total='aggregated' stored='aggregated' valid='aggregated'"
+          "Again i had uploaded 4 units, 4 files = 4 units but it shows as 3 units"
         ]
       },
       "acceptanceCriteria": [
-        "After importing a valid file, records show numeric values for total, stored, and valid packet counts.",
-        "The dashboard and report pages reflect the imported data with correct packet count figures."
+        "Uploading 4 CSV/XLS files each containing a distinct unit ID results in exactly 4 records stored in the backend.",
+        "The Reports table for that week displays all 4 unit rows.",
+        "The totals row in the Reports table footer reads 'Totals (4 units)'.",
+        "No unit record is silently dropped or merged with another during batch upsert.",
+        "The distinct unit count logic in reportFilters.ts (or equivalent) does not under-count when all unit IDs are valid and distinct."
       ]
     }
   ],
   "constraints": [
-    "Do not change the backend schema or Motoko actor.",
-    "Do not modify any files under frontend/src/hooks/useInternetIdentity.ts, frontend/src/hooks/useActor.ts, frontend/src/main.tsx, or frontend/src/components/ui."
+    "Do not change the overall UI layout or color theme.",
+    "Do not modify files listed in frontend.immutablePaths."
   ],
   "nonGoals": [
-    "Adding new import file formats beyond CSV/XLS/XLSX.",
-    "Changing the column mapping UI or custom column selection behavior.",
-    "Modifying the backend upsert logic."
+    "Adding new columns or report fields beyond what already exists.",
+    "Changing the CSV/XLS parsing logic for any field other than flavour and unit deduplication.",
+    "Dashboard layout or KPI card changes."
   ],
   "imageRequirements": {
     "required": [],

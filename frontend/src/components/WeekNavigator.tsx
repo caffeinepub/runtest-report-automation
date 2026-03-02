@@ -1,11 +1,31 @@
 import { ChevronLeft, ChevronRight, Calendar } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { getAdjacentWeek, parseWeekLabel } from '@/hooks/useQueries';
 
 interface WeekNavigatorProps {
   currentWeek: string;
   onWeekChange: (week: string) => void;
   availableWeeks?: string[];
+}
+
+function parseWeekLabel(label: string): { year: number; week: number } | null {
+  const match = label.match(/^(\d{4})-W(\d{2})$/);
+  if (!match) return null;
+  return { year: parseInt(match[1], 10), week: parseInt(match[2], 10) };
+}
+
+function getAdjacentWeek(label: string, delta: number): string {
+  const parsed = parseWeekLabel(label);
+  if (!parsed) return label;
+  let { year, week } = parsed;
+  week += delta;
+  if (week < 1) {
+    year -= 1;
+    week = 52;
+  } else if (week > 52) {
+    year += 1;
+    week = 1;
+  }
+  return `${year}-W${String(week).padStart(2, '0')}`;
 }
 
 export function WeekNavigator({ currentWeek, onWeekChange, availableWeeks }: WeekNavigatorProps) {

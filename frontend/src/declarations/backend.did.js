@@ -8,13 +8,19 @@
 
 import { IDL } from '@icp-sdk/core/candid';
 
-export const UnitModel = IDL.Variant({
+export const Model = IDL.Variant({
   'N13' : IDL.Null,
   'N125' : IDL.Null,
   'N135' : IDL.Null,
 });
+export const Flavour = IDL.Variant({
+  'aqi' : IDL.Null,
+  'premium' : IDL.Null,
+  'deluxe' : IDL.Null,
+  'standard' : IDL.Null,
+});
 export const ReportEntry = IDL.Record({
-  'unitModel' : UnitModel,
+  'model' : Model,
   'validGpsFixPkts' : IDL.Nat,
   'weekYear' : IDL.Text,
   'unitId' : IDL.Text,
@@ -22,6 +28,8 @@ export const ReportEntry = IDL.Record({
   'totalPkts' : IDL.Nat,
   'storedPkts' : IDL.Nat,
   'storedPktCount' : IDL.Nat,
+  'location' : IDL.Text,
+  'flavour' : Flavour,
 });
 
 export const idlService = IDL.Service({
@@ -33,10 +41,33 @@ export const idlService = IDL.Service({
       [IDL.Opt(ReportEntry)],
       ['query'],
     ),
+  'getReportsByModel' : IDL.Func([Model], [IDL.Vec(ReportEntry)], ['query']),
+  'getUnitCount' : IDL.Func([], [IDL.Nat], ['query']),
   'removeDisplayColumn' : IDL.Func([IDL.Text], [], []),
+  'upsertBatchReport' : IDL.Func(
+      [
+        IDL.Vec(
+          IDL.Tuple(
+            Model,
+            Flavour,
+            IDL.Text,
+            IDL.Text,
+            IDL.Nat,
+            IDL.Nat,
+            IDL.Nat,
+            IDL.Nat,
+            IDL.Nat,
+            IDL.Text,
+          )
+        ),
+      ],
+      [],
+      [],
+    ),
   'upsertReport' : IDL.Func(
       [
-        UnitModel,
+        Model,
+        Flavour,
         IDL.Text,
         IDL.Text,
         IDL.Nat,
@@ -44,6 +75,7 @@ export const idlService = IDL.Service({
         IDL.Nat,
         IDL.Nat,
         IDL.Nat,
+        IDL.Text,
       ],
       [],
       [],
@@ -53,13 +85,19 @@ export const idlService = IDL.Service({
 export const idlInitArgs = [];
 
 export const idlFactory = ({ IDL }) => {
-  const UnitModel = IDL.Variant({
+  const Model = IDL.Variant({
     'N13' : IDL.Null,
     'N125' : IDL.Null,
     'N135' : IDL.Null,
   });
+  const Flavour = IDL.Variant({
+    'aqi' : IDL.Null,
+    'premium' : IDL.Null,
+    'deluxe' : IDL.Null,
+    'standard' : IDL.Null,
+  });
   const ReportEntry = IDL.Record({
-    'unitModel' : UnitModel,
+    'model' : Model,
     'validGpsFixPkts' : IDL.Nat,
     'weekYear' : IDL.Text,
     'unitId' : IDL.Text,
@@ -67,6 +105,8 @@ export const idlFactory = ({ IDL }) => {
     'totalPkts' : IDL.Nat,
     'storedPkts' : IDL.Nat,
     'storedPktCount' : IDL.Nat,
+    'location' : IDL.Text,
+    'flavour' : Flavour,
   });
   
   return IDL.Service({
@@ -78,10 +118,33 @@ export const idlFactory = ({ IDL }) => {
         [IDL.Opt(ReportEntry)],
         ['query'],
       ),
+    'getReportsByModel' : IDL.Func([Model], [IDL.Vec(ReportEntry)], ['query']),
+    'getUnitCount' : IDL.Func([], [IDL.Nat], ['query']),
     'removeDisplayColumn' : IDL.Func([IDL.Text], [], []),
+    'upsertBatchReport' : IDL.Func(
+        [
+          IDL.Vec(
+            IDL.Tuple(
+              Model,
+              Flavour,
+              IDL.Text,
+              IDL.Text,
+              IDL.Nat,
+              IDL.Nat,
+              IDL.Nat,
+              IDL.Nat,
+              IDL.Nat,
+              IDL.Text,
+            )
+          ),
+        ],
+        [],
+        [],
+      ),
     'upsertReport' : IDL.Func(
         [
-          UnitModel,
+          Model,
+          Flavour,
           IDL.Text,
           IDL.Text,
           IDL.Nat,
@@ -89,6 +152,7 @@ export const idlFactory = ({ IDL }) => {
           IDL.Nat,
           IDL.Nat,
           IDL.Nat,
+          IDL.Text,
         ],
         [],
         [],

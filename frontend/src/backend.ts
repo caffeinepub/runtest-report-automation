@@ -90,7 +90,7 @@ export class ExternalBlob {
     }
 }
 export interface ReportEntry {
-    unitModel: UnitModel;
+    model: Model;
     validGpsFixPkts: bigint;
     weekYear: string;
     unitId: string;
@@ -98,8 +98,16 @@ export interface ReportEntry {
     totalPkts: bigint;
     storedPkts: bigint;
     storedPktCount: bigint;
+    location: string;
+    flavour: Flavour;
 }
-export enum UnitModel {
+export enum Flavour {
+    aqi = "aqi",
+    premium = "premium",
+    deluxe = "deluxe",
+    standard = "standard"
+}
+export enum Model {
     N13 = "N13",
     N125 = "N125",
     N135 = "N135"
@@ -109,10 +117,13 @@ export interface backendInterface {
     getAllReports(): Promise<Array<ReportEntry>>;
     getDisplayColumns(): Promise<Array<string>>;
     getReport(unitId: string, weekYear: string): Promise<ReportEntry | null>;
+    getReportsByModel(model: Model): Promise<Array<ReportEntry>>;
+    getUnitCount(): Promise<bigint>;
     removeDisplayColumn(columnName: string): Promise<void>;
-    upsertReport(unit: UnitModel, id: string, week: string, total: bigint, stored: bigint, valid: bigint, storedPkts: bigint, normalPkts: bigint): Promise<void>;
+    upsertBatchReport(entries: Array<[Model, Flavour, string, string, bigint, bigint, bigint, bigint, bigint, string]>): Promise<void>;
+    upsertReport(model: Model, flavour: Flavour, unitId: string, weekYear: string, totalPkts: bigint, storedPkts: bigint, validGpsFixPkts: bigint, storedPktCount: bigint, normalPktCount: bigint, location: string): Promise<void>;
 }
-import type { ReportEntry as _ReportEntry, UnitModel as _UnitModel } from "./declarations/backend.did.d.ts";
+import type { Flavour as _Flavour, Model as _Model, ReportEntry as _ReportEntry } from "./declarations/backend.did.d.ts";
 export class Backend implements backendInterface {
     constructor(private actor: ActorSubclass<_SERVICE>, private _uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, private _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, private processError?: (error: unknown) => never){}
     async addDisplayColumn(arg0: string): Promise<void> {
@@ -161,14 +172,42 @@ export class Backend implements backendInterface {
         if (this.processError) {
             try {
                 const result = await this.actor.getReport(arg0, arg1);
-                return from_candid_opt_n6(this._uploadFile, this._downloadFile, result);
+                return from_candid_opt_n8(this._uploadFile, this._downloadFile, result);
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
             const result = await this.actor.getReport(arg0, arg1);
-            return from_candid_opt_n6(this._uploadFile, this._downloadFile, result);
+            return from_candid_opt_n8(this._uploadFile, this._downloadFile, result);
+        }
+    }
+    async getReportsByModel(arg0: Model): Promise<Array<ReportEntry>> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getReportsByModel(to_candid_Model_n9(this._uploadFile, this._downloadFile, arg0));
+                return from_candid_vec_n1(this._uploadFile, this._downloadFile, result);
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getReportsByModel(to_candid_Model_n9(this._uploadFile, this._downloadFile, arg0));
+            return from_candid_vec_n1(this._uploadFile, this._downloadFile, result);
+        }
+    }
+    async getUnitCount(): Promise<bigint> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getUnitCount();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getUnitCount();
+            return result;
         }
     }
     async removeDisplayColumn(arg0: string): Promise<void> {
@@ -185,32 +224,49 @@ export class Backend implements backendInterface {
             return result;
         }
     }
-    async upsertReport(arg0: UnitModel, arg1: string, arg2: string, arg3: bigint, arg4: bigint, arg5: bigint, arg6: bigint, arg7: bigint): Promise<void> {
+    async upsertBatchReport(arg0: Array<[Model, Flavour, string, string, bigint, bigint, bigint, bigint, bigint, string]>): Promise<void> {
         if (this.processError) {
             try {
-                const result = await this.actor.upsertReport(to_candid_UnitModel_n7(this._uploadFile, this._downloadFile, arg0), arg1, arg2, arg3, arg4, arg5, arg6, arg7);
+                const result = await this.actor.upsertBatchReport(to_candid_vec_n11(this._uploadFile, this._downloadFile, arg0));
                 return result;
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.upsertReport(to_candid_UnitModel_n7(this._uploadFile, this._downloadFile, arg0), arg1, arg2, arg3, arg4, arg5, arg6, arg7);
+            const result = await this.actor.upsertBatchReport(to_candid_vec_n11(this._uploadFile, this._downloadFile, arg0));
+            return result;
+        }
+    }
+    async upsertReport(arg0: Model, arg1: Flavour, arg2: string, arg3: string, arg4: bigint, arg5: bigint, arg6: bigint, arg7: bigint, arg8: bigint, arg9: string): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.upsertReport(to_candid_Model_n9(this._uploadFile, this._downloadFile, arg0), to_candid_Flavour_n13(this._uploadFile, this._downloadFile, arg1), arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.upsertReport(to_candid_Model_n9(this._uploadFile, this._downloadFile, arg0), to_candid_Flavour_n13(this._uploadFile, this._downloadFile, arg1), arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9);
             return result;
         }
     }
 }
+function from_candid_Flavour_n6(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _Flavour): Flavour {
+    return from_candid_variant_n7(_uploadFile, _downloadFile, value);
+}
+function from_candid_Model_n4(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _Model): Model {
+    return from_candid_variant_n5(_uploadFile, _downloadFile, value);
+}
 function from_candid_ReportEntry_n2(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _ReportEntry): ReportEntry {
     return from_candid_record_n3(_uploadFile, _downloadFile, value);
 }
-function from_candid_UnitModel_n4(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _UnitModel): UnitModel {
-    return from_candid_variant_n5(_uploadFile, _downloadFile, value);
-}
-function from_candid_opt_n6(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [_ReportEntry]): ReportEntry | null {
+function from_candid_opt_n8(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [_ReportEntry]): ReportEntry | null {
     return value.length === 0 ? null : from_candid_ReportEntry_n2(_uploadFile, _downloadFile, value[0]);
 }
 function from_candid_record_n3(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
-    unitModel: _UnitModel;
+    model: _Model;
     validGpsFixPkts: bigint;
     weekYear: string;
     unitId: string;
@@ -218,8 +274,10 @@ function from_candid_record_n3(_uploadFile: (file: ExternalBlob) => Promise<Uint
     totalPkts: bigint;
     storedPkts: bigint;
     storedPktCount: bigint;
+    location: string;
+    flavour: _Flavour;
 }): {
-    unitModel: UnitModel;
+    model: Model;
     validGpsFixPkts: bigint;
     weekYear: string;
     unitId: string;
@@ -227,16 +285,20 @@ function from_candid_record_n3(_uploadFile: (file: ExternalBlob) => Promise<Uint
     totalPkts: bigint;
     storedPkts: bigint;
     storedPktCount: bigint;
+    location: string;
+    flavour: Flavour;
 } {
     return {
-        unitModel: from_candid_UnitModel_n4(_uploadFile, _downloadFile, value.unitModel),
+        model: from_candid_Model_n4(_uploadFile, _downloadFile, value.model),
         validGpsFixPkts: value.validGpsFixPkts,
         weekYear: value.weekYear,
         unitId: value.unitId,
         normalPktCount: value.normalPktCount,
         totalPkts: value.totalPkts,
         storedPkts: value.storedPkts,
-        storedPktCount: value.storedPktCount
+        storedPktCount: value.storedPktCount,
+        location: value.location,
+        flavour: from_candid_Flavour_n6(_uploadFile, _downloadFile, value.flavour)
     };
 }
 function from_candid_variant_n5(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
@@ -245,29 +307,79 @@ function from_candid_variant_n5(_uploadFile: (file: ExternalBlob) => Promise<Uin
     N125: null;
 } | {
     N135: null;
-}): UnitModel {
-    return "N13" in value ? UnitModel.N13 : "N125" in value ? UnitModel.N125 : "N135" in value ? UnitModel.N135 : value;
+}): Model {
+    return "N13" in value ? Model.N13 : "N125" in value ? Model.N125 : "N135" in value ? Model.N135 : value;
+}
+function from_candid_variant_n7(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+    aqi: null;
+} | {
+    premium: null;
+} | {
+    deluxe: null;
+} | {
+    standard: null;
+}): Flavour {
+    return "aqi" in value ? Flavour.aqi : "premium" in value ? Flavour.premium : "deluxe" in value ? Flavour.deluxe : "standard" in value ? Flavour.standard : value;
 }
 function from_candid_vec_n1(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: Array<_ReportEntry>): Array<ReportEntry> {
     return value.map((x)=>from_candid_ReportEntry_n2(_uploadFile, _downloadFile, x));
 }
-function to_candid_UnitModel_n7(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: UnitModel): _UnitModel {
-    return to_candid_variant_n8(_uploadFile, _downloadFile, value);
+function to_candid_Flavour_n13(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: Flavour): _Flavour {
+    return to_candid_variant_n14(_uploadFile, _downloadFile, value);
 }
-function to_candid_variant_n8(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: UnitModel): {
+function to_candid_Model_n9(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: Model): _Model {
+    return to_candid_variant_n10(_uploadFile, _downloadFile, value);
+}
+function to_candid_tuple_n12(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [Model, Flavour, string, string, bigint, bigint, bigint, bigint, bigint, string]): [_Model, _Flavour, string, string, bigint, bigint, bigint, bigint, bigint, string] {
+    return [
+        to_candid_Model_n9(_uploadFile, _downloadFile, value[0]),
+        to_candid_Flavour_n13(_uploadFile, _downloadFile, value[1]),
+        value[2],
+        value[3],
+        value[4],
+        value[5],
+        value[6],
+        value[7],
+        value[8],
+        value[9]
+    ];
+}
+function to_candid_variant_n10(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: Model): {
     N13: null;
 } | {
     N125: null;
 } | {
     N135: null;
 } {
-    return value == UnitModel.N13 ? {
+    return value == Model.N13 ? {
         N13: null
-    } : value == UnitModel.N125 ? {
+    } : value == Model.N125 ? {
         N125: null
-    } : value == UnitModel.N135 ? {
+    } : value == Model.N135 ? {
         N135: null
     } : value;
+}
+function to_candid_variant_n14(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: Flavour): {
+    aqi: null;
+} | {
+    premium: null;
+} | {
+    deluxe: null;
+} | {
+    standard: null;
+} {
+    return value == Flavour.aqi ? {
+        aqi: null
+    } : value == Flavour.premium ? {
+        premium: null
+    } : value == Flavour.deluxe ? {
+        deluxe: null
+    } : value == Flavour.standard ? {
+        standard: null
+    } : value;
+}
+function to_candid_vec_n11(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: Array<[Model, Flavour, string, string, bigint, bigint, bigint, bigint, bigint, string]>): Array<[_Model, _Flavour, string, string, bigint, bigint, bigint, bigint, bigint, string]> {
+    return value.map((x)=>to_candid_tuple_n12(_uploadFile, _downloadFile, x));
 }
 export interface CreateActorOptions {
     agent?: Agent;

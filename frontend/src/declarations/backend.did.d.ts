@@ -10,8 +10,15 @@ import type { ActorMethod } from '@icp-sdk/core/agent';
 import type { IDL } from '@icp-sdk/core/candid';
 import type { Principal } from '@icp-sdk/core/principal';
 
+export type Flavour = { 'aqi' : null } |
+  { 'premium' : null } |
+  { 'deluxe' : null } |
+  { 'standard' : null };
+export type Model = { 'N13' : null } |
+  { 'N125' : null } |
+  { 'N135' : null };
 export interface ReportEntry {
-  'unitModel' : UnitModel,
+  'model' : Model,
   'validGpsFixPkts' : bigint,
   'weekYear' : string,
   'unitId' : string,
@@ -19,18 +26,49 @@ export interface ReportEntry {
   'totalPkts' : bigint,
   'storedPkts' : bigint,
   'storedPktCount' : bigint,
+  'location' : string,
+  'flavour' : Flavour,
 }
-export type UnitModel = { 'N13' : null } |
-  { 'N125' : null } |
-  { 'N135' : null };
 export interface _SERVICE {
   'addDisplayColumn' : ActorMethod<[string], undefined>,
   'getAllReports' : ActorMethod<[], Array<ReportEntry>>,
   'getDisplayColumns' : ActorMethod<[], Array<string>>,
   'getReport' : ActorMethod<[string, string], [] | [ReportEntry]>,
+  'getReportsByModel' : ActorMethod<[Model], Array<ReportEntry>>,
+  'getUnitCount' : ActorMethod<[], bigint>,
   'removeDisplayColumn' : ActorMethod<[string], undefined>,
+  'upsertBatchReport' : ActorMethod<
+    [
+      Array<
+        [
+          Model,
+          Flavour,
+          string,
+          string,
+          bigint,
+          bigint,
+          bigint,
+          bigint,
+          bigint,
+          string,
+        ]
+      >,
+    ],
+    undefined
+  >,
   'upsertReport' : ActorMethod<
-    [UnitModel, string, string, bigint, bigint, bigint, bigint, bigint],
+    [
+      Model,
+      Flavour,
+      string,
+      string,
+      bigint,
+      bigint,
+      bigint,
+      bigint,
+      bigint,
+      string,
+    ],
     undefined
   >,
 }

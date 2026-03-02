@@ -1,48 +1,70 @@
 {
   "kind": "implementation_plan",
   "version": "1.0",
-  "title": "Fix CSV/XLS unit ID resolution — Address column not found",
+  "title": "Fix flavour mapping (AQI showing as Premium) and unit count off-by-one in reports",
   "requirements": [
     {
       "id": "REQ-1",
-      "summary": "Fix CSV/XLS parser to correctly resolve unit IDs from the 'Address' column in Waggle Portal export files by scanning the detected header row for the 'Address' keyword (case-insensitive) and using that column index to read each row's unit ID instead of failing with 'Address not found'.",
+      "summary": "Fix the flavour value not being correctly saved or read during CSV/XLS import: ensure that when 'AQI' is selected in CSVImportSection, it persists as 'aqi' in ReportEntry records and displays correctly in the Reports table",
       "acceptanceCriteria": [
-        "Uploading the Waggle Portal XLS file no longer produces 'Address not found' unit IDs.",
-        "The debug panel shows actual unit ID values (e.g. device serial numbers) for the first 3 sample rows.",
-        "The '2648 rows will be skipped due to missing or invalid unit IDs' warning is resolved and valid records are found.",
-        "The 'No valid records found in the file' error message is no longer shown when a valid Waggle Portal export is imported.",
-        "Column mapping in the debug panel correctly identifies col 25 as 'Address' and reads non-empty values from it."
+        "Selecting 'AQI' flavour in CSVImportSection and uploading files results in all imported records storing 'AQI' as the flavour value in the backend.",
+        "The Reports table displays 'AQI' in the Flavour column for those records — not 'Premium' or any other value.",
+        "Other flavour selections (e.g., 'Premium', 'Others') are still saved and displayed correctly.",
+        "Re-uploading with a different flavour selection updates the flavour for affected records correctly."
       ],
       "file_operations": [
         {
-          "path": "frontend/src/utils/csvParser.ts",
-          "operation": "modify",
-          "description": "Fix the Address column detection logic in the parsePerPacketEventLog function. Instead of relying on hardcoded column indices or incomplete header scanning, implement a robust case-insensitive search through the detected header row to find the column labeled 'Address'. Store the found column index and use it consistently when extracting unit IDs from data rows. Ensure that when the Address column is found, the unitId is read from the correct column in each row rather than returning 'Address not found'. Verify this change resolves the issue where col 25 is mapped but unit IDs are not extracted."
-        },
-        {
           "path": "frontend/src/components/CSVImportSection.tsx",
           "operation": "modify",
-          "description": "Update the debug panel rendering logic to display the actual unit ID values extracted from the Address column for the first 3 sample rows. Ensure the debug output reflects the corrected unitId values (e.g., device serial numbers) rather than 'Address not found' placeholders. Add validation checks to confirm that valid unit IDs are present before showing the 'No valid records found' error message, and adjust skip warnings to reflect accurate counts of records with missing or invalid unit IDs."
+          "description": "Fix the flavour mapping logic in the handleSubmit function to correctly map the selected flavour value ('AQI', 'Premium', 'Deluxe', 'Standard', or custom 'Others' value) to the backend Flavour enum format ('aqi', 'premium', 'deluxe', 'standard') before calling directUpsert. Ensure the flavour Select component value state and the mapping to backend enum values are consistent. Verify that the customFlavour input correctly handles 'Others' selection."
+        },
+        {
+          "path": "frontend/src/utils/csvParser.ts",
+          "operation": "modify",
+          "description": "Review and ensure the parseCSVToReportEntries function does not override or ignore the flavour parameter passed to it. The function should use the flavour argument directly when constructing parsed records, not infer or default it from CSV content. Verify that the flavour value flows correctly through to the returned array of tuples."
+        },
+        {
+          "path": "frontend/src/components/WeeklyReportTable.tsx",
+          "operation": "modify",
+          "description": "Ensure the Flavour column renders the flavour enum value correctly by mapping backend enum values ('aqi', 'premium', 'deluxe', 'standard') to display-friendly labels ('AQI', 'Premium', 'Deluxe', 'Standard') with proper capitalization. Add a helper function or inline mapping to transform the flavour value for display purposes only."
+        },
+        {
+          "path": "frontend/src/hooks/useQueries.ts",
+          "operation": "modify",
+          "description": "Review the directUpsert mutation to confirm it correctly passes flavour values to the backend upsertBatchReport function without transformation or default overrides. Ensure the tuple construction in the mutation uses the flavour parameter as-is and does not apply any incorrect mapping or fallback to 'premium'."
         }
       ]
     },
     {
       "id": "REQ-2",
-      "summary": "Audit the per-packet event log aggregation logic to ensure total, stored, and valid packet counts are computed correctly from row aggregation and populated as numeric values before records are submitted to the backend.",
+      "summary": "Fix the unit count mismatch in Reports: ensure that when 4 distinct unit files are uploaded, all 4 records are stored and displayed, and the Reports table footer correctly shows 'Totals (4 units)'",
       "acceptanceCriteria": [
-        "After importing a valid file, records show numeric values for total, stored, and valid packet counts.",
-        "The dashboard and report pages reflect the imported data with correct packet count figures."
+        "Uploading 4 CSV/XLS files each containing a distinct unit ID results in exactly 4 records stored in the backend.",
+        "The Reports table for that week displays all 4 unit rows.",
+        "The totals row in the Reports table footer reads 'Totals (4 units)'.",
+        "No unit record is silently dropped or merged with another during batch upsert.",
+        "The distinct unit count logic in reportFilters.ts (or equivalent) does not under-count when all unit IDs are valid and distinct."
       ],
       "file_operations": [
         {
+          "path": "frontend/src/utils/reportFilters.ts",
+          "operation": "modify",
+          "description": "Review and fix the countDistinctUnits function to ensure it correctly counts all valid, distinct unit IDs without off-by-one errors. Verify that the INVALID_UNIT_IDS set is accurate and does not inadvertently include valid unit IDs. Check the filtering logic in filterValidUnits to ensure no valid units are excluded. Add defensive checks to prevent under-counting."
+        },
+        {
+          "path": "frontend/src/components/WeeklyReportTable.tsx",
+          "operation": "modify",
+          "description": "Verify that the totals row calculation correctly uses the distinct unit count from reportFilters.ts and displays it as 'Totals (N units)' in the footer. Ensure the table renders all rows from the filteredEntries prop without accidentally skipping or merging rows with the same unit ID but different week/year combinations. Review the sorting and rendering logic to confirm all distinct records are displayed."
+        },
+        {
           "path": "frontend/src/utils/csvParser.ts",
           "operation": "modify",
-          "description": "Review and fix the aggregation logic in parsePerPacketEventLog that computes total, stored, and valid packet counts. Ensure that after Address column resolution, the aggregation step runs correctly and replaces 'aggregated' placeholders with actual numeric sums before returning the parsed records. Verify that packet state and GPS status parsing correctly contribute to the count totals, and that all numeric fields (totalPkts, storedPkts, validGpsFixPkts) are properly populated with non-placeholder values."
+          "description": "Review the parseCSVToReportEntries function to ensure it does not silently drop or merge records during parsing. Verify that each valid unit ID from each uploaded file produces a separate tuple in the output array, even if multiple files contain the same unit ID for different weeks. Check for any deduplication logic that might incorrectly merge records during parsing."
         },
         {
           "path": "frontend/src/components/CSVImportSection.tsx",
           "operation": "modify",
-          "description": "After the csvParser returns parsed records, verify that the total, stored, and valid packet count fields contain numeric values (not 'aggregated' strings) before passing them to the backend upsert mutation. Add a validation or transform step if necessary to ensure numeric types are enforced, and update the debug panel to display these numeric counts for the first 3 sample rows so the user can confirm correct aggregation."
+          "description": "Review the handleSubmit function to ensure that when multiple files are uploaded, each file's parsed records are correctly accumulated and passed to directUpsert without dropping any entries. Verify that the batch upsert call receives all parsed tuples and does not silently fail on any subset. Add validation or logging to confirm the number of records being submitted matches the number of files uploaded."
         }
       ]
     }

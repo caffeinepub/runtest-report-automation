@@ -6,9 +6,21 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { UnitModel, MODEL_LABELS, ALL_MODELS, getCurrentWeekLabel, useUpsertReport } from '@/hooks/useQueries';
-import { Plus, Trash2, Save, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
+import { Model, Flavour, MODEL_LABELS, ALL_MODELS, getCurrentWeekLabel, useUpsertReport } from '@/hooks/useQueries';
+import { Plus, Trash2, Save, CheckCircle2, AlertCircle, Loader2, X, MapPin } from 'lucide-react';
 import { toast } from 'sonner';
+
+// All four backend Flavour enum values must be present in this record
+const FLAVOUR_LABELS: Record<Flavour, string> = {
+  [Flavour.standard]: 'Lite',
+  [Flavour.aqi]:      'AQI',
+  [Flavour.premium]:  'Premium',
+  [Flavour.deluxe]:   'Deluxe',
+};
+
+const ALL_FLAVOURS: Flavour[] = [Flavour.standard, Flavour.aqi, Flavour.premium, Flavour.deluxe];
+
+const OTHERS_VALUE = '__others__';
 
 interface UnitRow {
   id: string;
@@ -47,13 +59,27 @@ function validateRow(row: UnitRow): string | undefined {
 }
 
 export function DataEntryForm() {
-  const [selectedModel, setSelectedModel] = useState<UnitModel>(UnitModel.N135);
+  const [selectedModel, setSelectedModel] = useState<Model>(Model.N135);
+  const [selectedFlavour, setSelectedFlavour] = useState<Flavour | typeof OTHERS_VALUE>(Flavour.standard);
+  const [customFlavour, setCustomFlavour] = useState('');
+  const [customFlavourError, setCustomFlavourError] = useState('');
+  const [location, setLocation] = useState('');
   const [weekLabel, setWeekLabel] = useState(getCurrentWeekLabel());
   const [rows, setRows] = useState<UnitRow[]>([createEmptyRow()]);
   const [submitStatus, setSubmitStatus] = useState<'idle' | 'submitting' | 'success' | 'error'>('idle');
   const [submitMessage, setSubmitMessage] = useState('');
 
   const upsertReport = useUpsertReport();
+
+  const isOthers = selectedFlavour === OTHERS_VALUE;
+
+  // For backend: "Others" maps to Flavour.deluxe
+  const backendFlavour: Flavour = isOthers ? Flavour.deluxe : (selectedFlavour as Flavour);
+
+  const getFlavourDisplayLabel = () => {
+    if (isOthers) return customFlavour.trim() || 'Others';
+    return FLAVOUR_LABELS[selectedFlavour as Flavour] ?? selectedFlavour;
+  };
 
   const addRow = useCallback(() => {
     setRows(prev => [...prev, createEmptyRow()]);
@@ -73,7 +99,13 @@ export function DataEntryForm() {
   }, []);
 
   const handleSubmit = async () => {
-    // Validate all rows
+    // Validate flavour
+    if (isOthers && !customFlavour.trim()) {
+      setCustomFlavourError('Please enter a custom flavour name.');
+      toast.error('Please enter a custom flavour name.');
+      return;
+    }
+
     const validatedRows = rows.map(row => ({
       ...row,
       error: validateRow(row),
@@ -86,7 +118,6 @@ export function DataEntryForm() {
       return;
     }
 
-    // Filter out completely empty rows
     const filledRows = rows.filter(r => r.unitId.trim());
     if (filledRows.length === 0) {
       toast.error('Please add at least one unit entry');
@@ -98,18 +129,18 @@ export function DataEntryForm() {
     let errorCount = 0;
 
     for (const row of filledRows) {
-      const storedVal = BigInt(parseInt(row.storedPkts) || 0);
       try {
         await upsertReport.mutateAsync({
-          unit: selectedModel,
-          id: row.unitId.trim(),
-          week: weekLabel,
-          total: BigInt(parseInt(row.totalPkts) || 0),
+          model: selectedModel,
+          flavour: backendFlavour,
+          unitId: row.unitId.trim(),
+          weekYear: weekLabel,
+          totalPkts: BigInt(parseInt(row.totalPkts) || 0),
+          storedPkts: BigInt(parseInt(row.storedPkts) || 0),
+          validGpsFixPkts: BigInt(parseInt(row.validGpsPkts) || 0),
+          storedPktCount: BigInt(parseInt(row.storedPkts) || 0),
           normalPkts: BigInt(parseInt(row.normalPkts) || 0),
-          // stored = legacy field; storedPkts = dedicated storedPktCount field
-          stored: storedVal,
-          storedPkts: storedVal,
-          valid: BigInt(parseInt(row.validGpsPkts) || 0),
+          location: location.trim(),
         });
         successCount++;
       } catch {
@@ -119,227 +150,296 @@ export function DataEntryForm() {
 
     if (errorCount === 0) {
       setSubmitStatus('success');
-      setSubmitMessage(`Successfully saved ${successCount} unit entries for ${MODEL_LABELS[selectedModel]} - ${weekLabel}`);
-      toast.success(`Saved ${successCount} entries`);
+      setSubmitMessage(`Successfully saved ${successCount} unit${successCount !== 1 ? 's' : ''}`);
+      toast.success(`Saved ${successCount} unit record${successCount !== 1 ? 's' : ''}`);
       setRows([createEmptyRow()]);
     } else {
       setSubmitStatus('error');
-      setSubmitMessage(`Saved ${successCount} entries, ${errorCount} failed`);
-      toast.error(`${errorCount} entries failed to save`);
+      setSubmitMessage(`${successCount} saved, ${errorCount} failed`);
+      toast.error(`${errorCount} record${errorCount !== 1 ? 's' : ''} failed to save`);
     }
-  };
-
-  const clearForm = () => {
-    setRows([createEmptyRow()]);
-    setSubmitStatus('idle');
-    setSubmitMessage('');
   };
 
   return (
     <div className="space-y-6">
-      {/* Form Header Controls */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 p-4 bg-card border border-border rounded-lg">
+      {/* Header Controls */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 p-4 rounded-xl bg-card border border-border">
+        {/* Week */}
         <div className="space-y-1.5">
-          <Label className="text-xs text-muted-foreground uppercase tracking-wide">Unit Model</Label>
-          <Select value={selectedModel} onValueChange={(v) => setSelectedModel(v as UnitModel)}>
-            <SelectTrigger className="bg-secondary border-border">
+          <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+            Week
+          </Label>
+          <Input
+            value={weekLabel}
+            onChange={e => setWeekLabel(e.target.value)}
+            placeholder="e.g. W08-2026"
+            className="text-sm"
+          />
+        </div>
+
+        {/* Model */}
+        <div className="space-y-1.5">
+          <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+            Model
+          </Label>
+          <Select value={selectedModel} onValueChange={v => setSelectedModel(v as Model)}>
+            <SelectTrigger className="text-sm">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {ALL_MODELS.map(model => (
-                <SelectItem key={model} value={model}>
-                  {MODEL_LABELS[model]}
-                </SelectItem>
+              {ALL_MODELS.map(m => (
+                <SelectItem key={m} value={m}>{MODEL_LABELS[m]}</SelectItem>
               ))}
             </SelectContent>
           </Select>
         </div>
 
+        {/* Flavour */}
         <div className="space-y-1.5">
-          <Label className="text-xs text-muted-foreground uppercase tracking-wide">Week (ISO Format)</Label>
-          <Input
-            value={weekLabel}
-            onChange={e => setWeekLabel(e.target.value)}
-            placeholder="e.g. 2024-W12"
-            className="bg-secondary border-border font-mono"
-          />
+          <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+            Flavour
+          </Label>
+          {isOthers ? (
+            <div className="flex gap-2">
+              <Input
+                value={customFlavour}
+                onChange={e => {
+                  setCustomFlavour(e.target.value);
+                  if (e.target.value.trim()) setCustomFlavourError('');
+                }}
+                placeholder="Custom flavour…"
+                className={`text-sm flex-1 ${customFlavourError ? 'border-destructive' : ''}`}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="h-9 w-9 flex-shrink-0"
+                onClick={() => {
+                  setSelectedFlavour(Flavour.standard);
+                  setCustomFlavour('');
+                  setCustomFlavourError('');
+                }}
+                title="Back to dropdown"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          ) : (
+            <Select
+              value={selectedFlavour}
+              onValueChange={v => {
+                setSelectedFlavour(v as Flavour | typeof OTHERS_VALUE);
+                setCustomFlavourError('');
+              }}
+            >
+              <SelectTrigger className="text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {ALL_FLAVOURS.map(f => (
+                  <SelectItem key={f} value={f}>{FLAVOUR_LABELS[f]}</SelectItem>
+                ))}
+                <SelectItem value={OTHERS_VALUE}>Others</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
+          {customFlavourError && (
+            <p className="text-xs text-destructive flex items-center gap-1 mt-1">
+              <AlertCircle className="w-3 h-3" />
+              {customFlavourError}
+            </p>
+          )}
         </div>
 
+        {/* Location */}
         <div className="space-y-1.5">
-          <Label className="text-xs text-muted-foreground uppercase tracking-wide">Quick Add Rows</Label>
-          <div className="flex gap-2">
-            {[5, 10, 30].map(n => (
-              <Button
-                key={n}
-                variant="outline"
-                size="sm"
-                onClick={() => addMultipleRows(n)}
-                className="flex-1 border-border bg-secondary hover:bg-muted text-xs"
-              >
-                +{n}
-              </Button>
-            ))}
-          </div>
+          <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
+            <MapPin className="w-3 h-3" />
+            Location
+          </Label>
+          <Input
+            value={location}
+            onChange={e => setLocation(e.target.value)}
+            placeholder="e.g. Site A, KL…"
+            className="text-sm"
+          />
         </div>
       </div>
 
-      {/* Status Alert */}
+      {/* Submit status alert */}
       {submitStatus === 'success' && (
         <Alert className="border-green-500/30 bg-green-500/10">
           <CheckCircle2 className="h-4 w-4 text-green-400" />
-          <AlertDescription className="text-green-300">{submitMessage}</AlertDescription>
+          <AlertDescription className="text-green-400">{submitMessage}</AlertDescription>
         </Alert>
       )}
       {submitStatus === 'error' && (
-        <Alert className="border-destructive/30 bg-destructive/10">
-          <AlertCircle className="h-4 w-4 text-destructive" />
-          <AlertDescription className="text-destructive">{submitMessage}</AlertDescription>
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{submitMessage}</AlertDescription>
         </Alert>
       )}
 
       {/* Data Table */}
-      <div className="border border-border rounded-lg overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-3 bg-secondary/50 border-b border-border">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-medium">Unit Entries</span>
-            <Badge variant="outline" className="font-mono text-xs border-border">
-              {rows.length} rows
-            </Badge>
-            <Badge className="font-mono text-xs bg-primary/20 text-primary border-primary/30">
-              {MODEL_LABELS[selectedModel]}
-            </Badge>
-          </div>
+      <div className="rounded-xl border border-border overflow-hidden">
+        <Table>
+          <TableHeader>
+            <TableRow className="border-border/40 hover:bg-transparent bg-muted/20">
+              <TableHead className="text-xs font-semibold text-muted-foreground w-8">#</TableHead>
+              <TableHead className="text-xs font-semibold text-muted-foreground">Unit ID *</TableHead>
+              <TableHead className="text-xs font-semibold text-muted-foreground text-right">Total Pkts *</TableHead>
+              <TableHead className="text-xs font-semibold text-muted-foreground text-right">Normal Pkts</TableHead>
+              <TableHead className="text-xs font-semibold text-muted-foreground text-right">Stored Pkts *</TableHead>
+              <TableHead className="text-xs font-semibold text-muted-foreground text-right">Valid GPS *</TableHead>
+              <TableHead className="w-8" />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.map((row, idx) => (
+              <TableRow key={row.id} className={`border-border/20 ${row.error ? 'bg-destructive/5' : 'hover:bg-muted/10'}`}>
+                <TableCell className="text-xs text-muted-foreground">{idx + 1}</TableCell>
+                <TableCell>
+                  <Input
+                    value={row.unitId}
+                    onChange={e => updateRow(row.id, 'unitId', e.target.value)}
+                    placeholder="S18025"
+                    className="h-7 text-xs font-mono"
+                  />
+                </TableCell>
+                <TableCell>
+                  <Input
+                    value={row.totalPkts}
+                    onChange={e => updateRow(row.id, 'totalPkts', e.target.value)}
+                    placeholder="0"
+                    type="number"
+                    min="0"
+                    className="h-7 text-xs text-right tabular-nums"
+                  />
+                </TableCell>
+                <TableCell>
+                  <Input
+                    value={row.normalPkts}
+                    onChange={e => updateRow(row.id, 'normalPkts', e.target.value)}
+                    placeholder="0"
+                    type="number"
+                    min="0"
+                    className="h-7 text-xs text-right tabular-nums"
+                  />
+                </TableCell>
+                <TableCell>
+                  <Input
+                    value={row.storedPkts}
+                    onChange={e => updateRow(row.id, 'storedPkts', e.target.value)}
+                    placeholder="0"
+                    type="number"
+                    min="0"
+                    className="h-7 text-xs text-right tabular-nums"
+                  />
+                </TableCell>
+                <TableCell>
+                  <Input
+                    value={row.validGpsPkts}
+                    onChange={e => updateRow(row.id, 'validGpsPkts', e.target.value)}
+                    placeholder="0"
+                    type="number"
+                    min="0"
+                    className="h-7 text-xs text-right tabular-nums"
+                  />
+                </TableCell>
+                <TableCell>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                    onClick={() => removeRow(row.id)}
+                    disabled={rows.length === 1}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+
+      {/* Row error messages */}
+      {rows.some(r => r.error) && (
+        <div className="space-y-1">
+          {rows.filter(r => r.error).map((r, i) => (
+            <p key={i} className="text-xs text-destructive flex items-center gap-1.5">
+              <AlertCircle className="w-3 h-3 flex-shrink-0" />
+              Row {rows.indexOf(r) + 1}: {r.error}
+            </p>
+          ))}
+        </div>
+      )}
+
+      {/* Actions */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-2 flex-wrap">
           <Button
             variant="outline"
             size="sm"
             onClick={addRow}
-            className="border-primary/30 text-primary hover:bg-primary/10 gap-1.5"
+            className="h-8 text-xs border-border/60"
           >
-            <Plus className="w-3.5 h-3.5" />
+            <Plus className="h-3.5 w-3.5 mr-1.5" />
             Add Row
           </Button>
+          {[5, 10].map(n => (
+            <Button
+              key={n}
+              variant="outline"
+              size="sm"
+              onClick={() => addMultipleRows(n)}
+              className="h-8 text-xs border-border/60"
+            >
+              +{n} Rows
+            </Button>
+          ))}
+          <Badge variant="secondary" className="bg-muted text-muted-foreground text-xs">
+            {rows.filter(r => r.unitId.trim()).length} / {rows.length} filled
+          </Badge>
         </div>
 
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow className="border-border hover:bg-transparent">
-                <TableHead className="w-12 text-center text-xs text-muted-foreground">#</TableHead>
-                <TableHead className="text-xs text-muted-foreground">Unit ID</TableHead>
-                <TableHead className="text-xs text-muted-foreground text-right">Total Packets</TableHead>
-                <TableHead className="text-xs text-muted-foreground text-right">Normal Packets</TableHead>
-                <TableHead className="text-xs text-muted-foreground text-right">Stored Packets</TableHead>
-                <TableHead className="text-xs text-muted-foreground text-right">Valid GPS Fix</TableHead>
-                <TableHead className="w-10"></TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((row, idx) => (
-                <TableRow
-                  key={row.id}
-                  className={`border-border ${row.error ? 'bg-destructive/5' : 'hover:bg-secondary/30'}`}
-                >
-                  <TableCell className="text-center text-xs text-muted-foreground font-mono">
-                    {idx + 1}
-                  </TableCell>
-                  <TableCell>
-                    <div className="space-y-1">
-                      <Input
-                        value={row.unitId}
-                        onChange={e => updateRow(row.id, 'unitId', e.target.value)}
-                        placeholder="e.g. UNIT-001"
-                        className={`h-8 bg-secondary border-border font-mono text-sm ${row.error && !row.unitId ? 'border-destructive' : ''}`}
-                      />
-                      {row.error && (
-                        <p className="text-xs text-destructive">{row.error}</p>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Input
-                      value={row.totalPkts}
-                      onChange={e => updateRow(row.id, 'totalPkts', e.target.value)}
-                      placeholder="0"
-                      type="number"
-                      min="0"
-                      className="h-8 bg-secondary border-border font-mono text-sm text-right"
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Input
-                      value={row.normalPkts}
-                      onChange={e => updateRow(row.id, 'normalPkts', e.target.value)}
-                      placeholder="0"
-                      type="number"
-                      min="0"
-                      className="h-8 bg-secondary border-border font-mono text-sm text-right"
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Input
-                      value={row.storedPkts}
-                      onChange={e => updateRow(row.id, 'storedPkts', e.target.value)}
-                      placeholder="0"
-                      type="number"
-                      min="0"
-                      className="h-8 bg-secondary border-border font-mono text-sm text-right"
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Input
-                      value={row.validGpsPkts}
-                      onChange={e => updateRow(row.id, 'validGpsPkts', e.target.value)}
-                      placeholder="0"
-                      type="number"
-                      min="0"
-                      className="h-8 bg-secondary border-border font-mono text-sm text-right"
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => removeRow(row.id)}
-                      disabled={rows.length === 1}
-                      className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      </div>
-
-      {/* Action Buttons */}
-      <div className="flex items-center justify-between">
-        <Button
-          variant="outline"
-          onClick={clearForm}
-          className="border-border bg-secondary hover:bg-muted"
-        >
-          Clear All
-        </Button>
         <Button
           onClick={handleSubmit}
           disabled={submitStatus === 'submitting'}
-          className="bg-primary text-primary-foreground hover:bg-primary/90 gap-2 min-w-[140px]"
+          className="h-8 text-xs bg-primary hover:bg-primary/90"
         >
           {submitStatus === 'submitting' ? (
             <>
-              <Loader2 className="w-4 h-4 animate-spin" />
-              Saving...
+              <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+              Saving…
             </>
           ) : (
             <>
-              <Save className="w-4 h-4" />
-              Save All Entries
+              <Save className="h-3.5 w-3.5 mr-1.5" />
+              Save {rows.filter(r => r.unitId.trim()).length} Record{rows.filter(r => r.unitId.trim()).length !== 1 ? 's' : ''}
             </>
           )}
         </Button>
       </div>
+
+      {/* Tagged as info */}
+      <p className="text-xs text-muted-foreground">
+        Records will be tagged as:{' '}
+        <span className="text-foreground font-medium">{MODEL_LABELS[selectedModel]}</span>
+        {' / '}
+        <span className="text-foreground font-medium">{getFlavourDisplayLabel()}</span>
+        {location.trim() && (
+          <>
+            {' / '}
+            <span className="text-foreground font-medium">{location.trim()}</span>
+          </>
+        )}
+        {' for week '}
+        <span className="text-foreground font-medium">{weekLabel}</span>
+      </p>
     </div>
   );
 }
+
+export default DataEntryForm;

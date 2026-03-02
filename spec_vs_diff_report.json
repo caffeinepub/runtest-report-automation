@@ -1,15 +1,74 @@
 {
   "kind": "spec_vs_diff_report",
   "version": "1.0",
-  "generatedAt": "2026-02-27T10:52:07.000Z",
-  "summary": "The diff implements fixes in frontend/src/utils/csvParser.ts and frontend/src/components/CSVImportSection.tsx that address both REQ-1 (Address column resolution) and REQ-2 (packet count aggregation). REQ-1 is addressed by adding findAddressColumnIndex(), findHwidColumnIndex(), resolveUnitId() helpers and expanding INVALID_UNIT_IDS. REQ-2 is addressed by adding resolvedSampleRecords to ParseDebugInfo so numeric counts are available. Both requirements appear substantially implemented.",
-  "missing_requirements": [],
-  "hallucinated_features": [],
-  "confidence": 0.82,
+  "generatedAt": "2026-02-27T14:12:03.523Z",
+  "summary": "The diff addresses both REQ-1 (flavour mapping fix) and REQ-2 (unit count off-by-one) with changes across backend and frontend. REQ-1 is substantially addressed: the backend adds #aqi to the Flavour type, CSVImportSection now correctly maps AQI to Flavour.aqi, and WeeklyReportTable's flavourLabel correctly maps 'aqi' to 'AQI'. REQ-2 is partially addressed: a getUnitCount query is added to the backend using a Set for deduplication, and countDistinctUnits is used in the table footer. However, the root cause of the batch upsert dropping a record is not clearly fixed, the migration does not remediate historically misclassified records, and the reportFilters.ts fix is not directly shown in the diff.",
+  "missing_requirements": [
+    {
+      "id": "REQ-1",
+      "requirement": "Re-uploading with a different flavour selection updates the flavour for affected records correctly; existing records incorrectly stored as Premium instead of AQI should be correctable.",
+      "reason": "The migration.mo file does not remap any existing misclassified records stored as #premium that should have been #aqi. It only preserves existing flavour values as-is, so historical data corruption from the bug is not remediated.",
+      "evidence": [
+        "backend/migration.mo"
+      ]
+    },
+    {
+      "id": "REQ-2",
+      "requirement": "No unit record is silently dropped or merged with another during batch upsert; the root cause of the off-by-one in upsertBatchReport must be fixed.",
+      "reason": "The diff shows upsertBatchReport still calls await upsertReport sequentially in a for-loop with no visible fix to key collision or drop behavior. The underlying cause of 4 files yielding 3 records is not explicitly resolved in the diff.",
+      "evidence": [
+        "backend/main.mo"
+      ]
+    },
+    {
+      "id": "REQ-2",
+      "requirement": "The distinct unit count logic in reportFilters.ts does not under-count when all unit IDs are valid and distinct.",
+      "reason": "The diff references countDistinctUnits from reportFilters.ts in WeeklyReportTable.tsx but the actual content or fix of reportFilters.ts is not shown in the diff, only mentioned indirectly in the file summaries.",
+      "evidence": [
+        "frontend/src/components/WeeklyReportTable.tsx",
+        "frontend-file-summaries.txt"
+      ]
+    }
+  ],
+  "hallucinated_features": [
+    {
+      "description": "ModelSummaryCard extended with By Flavour and By Location breakdown sections showing mini bar charts",
+      "reason": "The build request explicitly lists dashboard layout or KPI card changes as a non-goal. Adding breakdown sections with mini bar charts to ModelSummaryCard is an unrequested dashboard change.",
+      "evidence": [
+        "frontend-file-summaries.txt"
+      ]
+    },
+    {
+      "description": "ReportFilters CSV export updated to include a new Location column",
+      "reason": "The build request states adding new columns or report fields beyond what already exists is a non-goal. Adding a Location column to the CSV export is an unrequested new report field.",
+      "evidence": [
+        "frontend-file-summaries.txt"
+      ]
+    },
+    {
+      "description": "csvParser.ts fixes for Address not found unit ID bug, HWID column fallback, and filename extraction improvements",
+      "reason": "The build request explicitly states changing the CSV/XLS parsing logic for any field other than flavour and unit deduplication is a non-goal. These parser changes go beyond what was requested.",
+      "evidence": [
+        "frontend-file-summaries.txt"
+      ]
+    },
+    {
+      "description": "New getUnitCount backend query method added as a separate RPC endpoint",
+      "reason": "The requirements asked for fixing the count logic in reportFilters.ts or equivalent frontend logic, not adding a new backend API endpoint for unit counting.",
+      "evidence": [
+        "backend/main.mo"
+      ]
+    }
+  ],
+  "confidence": 0.62,
   "changed_files": [
+    "backend/main.mo",
+    "backend/migration.mo",
     "frontend-file-summaries.txt",
     "frontend/src/components/CSVImportSection.tsx",
-    "frontend/src/utils/csvParser.ts",
+    "frontend/src/components/DataEntryForm.tsx",
+    "frontend/src/components/WeeklyReportTable.tsx",
+    "frontend/src/pages/ReportPage.tsx",
     "project_state.json"
   ]
 }

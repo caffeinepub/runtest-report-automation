@@ -1,123 +1,94 @@
-import React, { useState, useMemo } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { FileText, Columns } from 'lucide-react';
-import { useGetAllReports, getISOWeekLabel, UnitModel } from '@/hooks/useQueries';
-import { filterValidEntries } from '@/utils/reportFilters';
-import WeeklyReportTable from '@/components/WeeklyReportTable';
-import { ReportFilters } from '@/components/ReportFilters';
-import { useColumnMapping } from '@/hooks/useColumnMapping';
+import React, { useState, useMemo } from "react";
+import WeeklyReportTable from "../components/WeeklyReportTable";
+import { ReportFilters } from "../components/ReportFilters";
+import { WeekNavigator } from "../components/WeekNavigator";
+import {
+  useGetAllReports,
+  getISOWeekLabel,
+} from "../hooks/useQueries";
+import { Model } from "../backend";
+import { filterValidEntries } from "../utils/reportFilters";
 
-const ReportPage: React.FC = () => {
-  const [selectedWeek, setSelectedWeek] = useState(() => getISOWeekLabel());
-  const [selectedModel, setSelectedModel] = useState<UnitModel | 'ALL'>('ALL');
-  const [selectedUnitId, setSelectedUnitId] = useState<string>('ALL');
+export default function ReportPage() {
+  const { data: allReports = [], isLoading } = useGetAllReports();
 
-  const { data: rawReports = [], isLoading } = useGetAllReports();
-  const { selectedColumns } = useColumnMapping();
-
-  const allValid = useMemo(() => filterValidEntries(rawReports), [rawReports]);
-
-  // All available weeks for the week navigator
-  const availableWeeks = useMemo(
-    () => Array.from(new Set(allValid.map(e => e.weekYear))).sort(),
-    [allValid]
+  const [selectedWeek, setSelectedWeek] = useState<string>(() =>
+    getISOWeekLabel(new Date())
   );
+  const [unitIdFilter, setUnitIdFilter] = useState("");
+  const [modelFilter, setModelFilter] = useState<Model | "all">("all");
 
-  // Entries filtered by week only
-  const weekEntries = useMemo(
-    () => allValid.filter(e => e.weekYear === selectedWeek),
-    [allValid, selectedWeek]
-  );
+  // Derive sorted list of available weeks from all valid reports
+  const availableWeeks = useMemo(() => {
+    const valid = filterValidEntries(allReports);
+    const weeks = Array.from(new Set(valid.map((e) => e.weekYear))).sort(
+      (a, b) => b.localeCompare(a)
+    );
+    // Always include the current week even if no data yet
+    const current = getISOWeekLabel(new Date());
+    if (!weeks.includes(current)) weeks.unshift(current);
+    return weeks;
+  }, [allReports]);
 
-  // Entries filtered by week + model (used to populate unit ID dropdown)
-  const modelWeekEntries = useMemo(() => {
-    if (selectedModel === 'ALL') return weekEntries;
-    return weekEntries.filter(e => String(e.unitModel) === selectedModel);
-  }, [weekEntries, selectedModel]);
+  // Filter to valid entries for the selected week
+  const weekEntries = useMemo(() => {
+    const valid = filterValidEntries(allReports);
+    return valid.filter((e) => e.weekYear === selectedWeek);
+  }, [allReports, selectedWeek]);
 
-  // Fully filtered entries (week + model + unit ID)
+  // Apply model + unit ID filters
   const filteredEntries = useMemo(() => {
-    if (selectedUnitId === 'ALL') return modelWeekEntries;
-    return modelWeekEntries.filter(e => e.unitId === selectedUnitId);
-  }, [modelWeekEntries, selectedUnitId]);
+    let entries = weekEntries;
+    if (modelFilter !== "all") {
+      entries = entries.filter((e) => String(e.model) === String(modelFilter));
+    }
+    if (unitIdFilter.trim()) {
+      const q = unitIdFilter.trim().toLowerCase();
+      entries = entries.filter((e) => e.unitId.toLowerCase().includes(q));
+    }
+    return entries;
+  }, [weekEntries, modelFilter, unitIdFilter]);
 
-  // Reset unit ID filter when model or week changes
-  const handleModelChange = (model: UnitModel | 'ALL') => {
-    setSelectedModel(model);
-    setSelectedUnitId('ALL');
-  };
-
-  const handleWeekChange = (week: string) => {
+  // Combined filter change handler matching ReportFilters' onFilterChange signature
+  const handleFilterChange = (
+    week: string,
+    unitId: string,
+    model: Model | "all"
+  ) => {
     setSelectedWeek(week);
-    setSelectedUnitId('ALL');
+    setUnitIdFilter(unitId);
+    setModelFilter(model);
   };
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
+    <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+      {/* Page header */}
       <div>
         <h1 className="text-2xl font-bold text-foreground">Reports</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Weekly GPS tracker packet report
+          Weekly GPS tracker performance reports
         </p>
       </div>
 
-      {/* Filters */}
-      <ReportFilters
-        selectedModel={selectedModel}
-        onModelChange={handleModelChange}
-        selectedWeek={selectedWeek}
-        onWeekChange={handleWeekChange}
+      {/* Week navigator */}
+      <WeekNavigator
+        currentWeek={selectedWeek}
+        onWeekChange={(week) => handleFilterChange(week, unitIdFilter, modelFilter)}
         availableWeeks={availableWeeks}
-        filteredEntries={filteredEntries}
-        modelWeekEntries={modelWeekEntries}
-        selectedUnitId={selectedUnitId}
-        onUnitIdChange={setSelectedUnitId}
       />
 
-      {/* Custom columns notice */}
-      {selectedColumns.length > 0 && (
-        <div className="flex items-center gap-2 flex-wrap px-1">
-          <Columns className="h-3.5 w-3.5 text-amber-400 shrink-0" />
-          <span className="text-xs text-amber-400/80">Custom columns:</span>
-          {selectedColumns.map(col => (
-            <Badge key={col} variant="outline" className="text-xs border-amber-500/30 text-amber-400/70 bg-amber-500/5">
-              {col}
-            </Badge>
-          ))}
-          <span className="text-xs text-muted-foreground">— shown in table below</span>
-        </div>
-      )}
+      {/* Filters */}
+      <ReportFilters
+        availableWeeks={availableWeeks}
+        selectedWeek={selectedWeek}
+        unitIdFilter={unitIdFilter}
+        modelFilter={modelFilter}
+        onFilterChange={handleFilterChange}
+        entries={weekEntries}
+      />
 
-      {/* Report table */}
-      <Card className="border-border/40 bg-card/60">
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-base font-semibold flex items-center gap-2">
-              <FileText className="h-4 w-4 text-amber-400" />
-              {selectedWeek} Report
-            </CardTitle>
-            <Badge variant="outline" className="text-xs border-border/40">
-              {filteredEntries.length} unit{filteredEntries.length !== 1 ? 's' : ''}
-            </Badge>
-          </div>
-        </CardHeader>
-        <CardContent className="p-0">
-          {isLoading ? (
-            <div className="py-12 text-center text-sm text-muted-foreground">Loading…</div>
-          ) : filteredEntries.length === 0 ? (
-            <div className="py-12 text-center">
-              <FileText className="h-10 w-10 mx-auto text-muted-foreground/30 mb-3" />
-              <p className="text-sm text-muted-foreground">No data for {selectedWeek}</p>
-            </div>
-          ) : (
-            <WeeklyReportTable entries={filteredEntries} />
-          )}
-        </CardContent>
-      </Card>
-    </div>
+      {/* Table */}
+      <WeeklyReportTable entries={filteredEntries} isLoading={isLoading} />
+    </main>
   );
-};
-
-export default ReportPage;
+}

@@ -1,161 +1,164 @@
-import { Button } from '@/components/ui/button';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Label } from '@/components/ui/label';
-import { UnitModel, MODEL_LABELS, ALL_MODELS, type ReportEntry } from '@/hooks/useQueries';
-import { Download, Filter } from 'lucide-react';
-import { WeekNavigator } from './WeekNavigator';
+import React from "react";
+import { Download, Search, Calendar, Filter } from "lucide-react";
+import type { ReportEntry } from "../backend";
+import { Model } from "../backend";
+
+const MODEL_FILTER_OPTIONS: { label: string; value: Model | "all" }[] = [
+  { label: "All Models", value: "all" },
+  { label: "N13.5", value: Model.N135 },
+  { label: "N13", value: Model.N13 },
+  { label: "N12.5", value: Model.N125 },
+];
 
 interface ReportFiltersProps {
-  selectedModel: UnitModel | 'ALL';
-  onModelChange: (model: UnitModel | 'ALL') => void;
-  selectedWeek: string;
-  onWeekChange: (week: string) => void;
   availableWeeks: string[];
-  filteredEntries: ReportEntry[];
-  /** Entries filtered by model+week only (before unit ID filter), used to populate unit ID options */
-  modelWeekEntries: ReportEntry[];
-  selectedUnitId: string;
-  onUnitIdChange: (unitId: string) => void;
+  selectedWeek: string;
+  unitIdFilter: string;
+  modelFilter: Model | "all";
+  onFilterChange: (week: string, unitId: string, model: Model | "all") => void;
+  entries: ReportEntry[];
 }
 
-function exportToCSV(entries: ReportEntry[], week: string, model: UnitModel | 'ALL', unitId: string) {
-  const modelLabel = model === 'ALL' ? 'All Models' : MODEL_LABELS[model];
-  const headers = [
-    'Unit ID',
-    'Model',
-    'Week',
-    'Total Packets',
-    'Normal Packets',
-    'Stored Packets',
-    'Valid GPS Fix Packets',
-    'GPS Fix %',
-    'Stored %',
-  ];
+function calcPct(numerator: bigint | number, denominator: bigint | number): string {
+  const num = Number(numerator);
+  const den = Number(denominator);
+  if (den === 0) return '—';
+  return (num / den * 100).toFixed(1) + '%';
+}
 
-  const rows = entries.map(e => {
-    const total = Number(e.totalPkts);
-    const normal = Number(e.normalPktCount);
-    const stored = Number(e.storedPkts);
-    const valid = Number(e.validGpsFixPkts);
-    const gpsPct = total > 0 ? ((valid / total) * 100).toFixed(2) : '0.00';
-    const storedPct = total > 0 ? ((stored / total) * 100).toFixed(2) : '0.00';
-    return [
-      e.unitId,
-      MODEL_LABELS[e.unitModel as UnitModel] ?? String(e.unitModel),
-      e.weekYear,
-      total,
-      normal,
-      stored,
-      valid,
-      gpsPct + '%',
-      storedPct + '%',
-    ];
-  });
+function flavourLabel(f: string): string {
+  if (!f || f.trim() === '') return '—';
+  return f.charAt(0).toUpperCase() + f.slice(1);
+}
 
-  // Add totals row
-  const totalPkts = entries.reduce((s, e) => s + Number(e.totalPkts), 0);
-  const normalPkts = entries.reduce((s, e) => s + Number(e.normalPktCount), 0);
-  const storedPkts = entries.reduce((s, e) => s + Number(e.storedPkts), 0);
-  const validPkts = entries.reduce((s, e) => s + Number(e.validGpsFixPkts), 0);
-  const gpsPct = totalPkts > 0 ? ((validPkts / totalPkts) * 100).toFixed(2) : '0.00';
-  const storedPct = totalPkts > 0 ? ((storedPkts / totalPkts) * 100).toFixed(2) : '0.00';
-  rows.push(['TOTALS', modelLabel, week, totalPkts, normalPkts, storedPkts, validPkts, gpsPct + '%', storedPct + '%']);
+function locationLabel(l: string): string {
+  if (!l || l.trim() === '') return '—';
+  return l;
+}
 
-  const csvContent = [headers, ...rows]
-    .map(row => row.map(cell => `"${cell}"`).join(','))
-    .join('\n');
-
-  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  const unitSuffix = unitId !== 'ALL' ? `-${unitId}` : '';
-  link.download = `runtest-report-${week}-${model}${unitSuffix}.csv`;
-  link.click();
-  URL.revokeObjectURL(url);
+function modelLabel(m: string): string {
+  if (m === 'N135') return 'N13.5';
+  if (m === 'N125') return 'N12.5';
+  if (m === 'N13') return 'N13';
+  return m;
 }
 
 export function ReportFilters({
-  selectedModel,
-  onModelChange,
-  selectedWeek,
-  onWeekChange,
   availableWeeks,
-  filteredEntries,
-  modelWeekEntries,
-  selectedUnitId,
-  onUnitIdChange,
+  selectedWeek,
+  unitIdFilter,
+  modelFilter,
+  onFilterChange,
+  entries,
 }: ReportFiltersProps) {
-  // Build sorted unique unit ID list from model+week filtered entries
-  const unitIds = Array.from(new Set(modelWeekEntries.map(e => e.unitId))).sort((a, b) =>
-    a.localeCompare(b)
-  );
+  const handleExportCSV = () => {
+    if (entries.length === 0) return;
+
+    const headers = [
+      "Unit ID",
+      "Week",
+      "Model",
+      "Flavour",
+      "Location",
+      "Total Packets",
+      "Stored Packets",
+      "Stored Pkt %",
+      "Valid GPS Fix Packets",
+      "Valid GPS %",
+      "Stored Packet Count",
+      "Normal Packets",
+    ];
+
+    const rows = entries.map((e) => {
+      const total = e.totalPkts;
+      const stored = e.storedPkts;
+      const valid = e.validGpsFixPkts;
+      // Escape fields that might contain commas
+      const escape = (val: string) => val.includes(',') ? `"${val}"` : val;
+      return [
+        escape(e.unitId),
+        escape(e.weekYear),
+        escape(modelLabel(String(e.model ?? ''))),
+        escape(flavourLabel(String(e.flavour ?? ''))),
+        escape(locationLabel(e.location ?? '')),
+        total.toString(),
+        stored.toString(),
+        calcPct(stored, total),
+        valid.toString(),
+        calcPct(valid, total),
+        e.storedPktCount.toString(),
+        e.normalPktCount.toString(),
+      ];
+    });
+
+    const csv = [headers, ...rows].map((r) => r.join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `gps-report-${selectedWeek}${modelFilter !== "all" ? `-${modelFilter}` : ""}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
-    <div className="flex flex-wrap items-end gap-4 p-4 bg-card border border-border rounded-lg">
-      <div className="flex items-center gap-2 text-muted-foreground">
-        <Filter className="w-4 h-4" />
-        <span className="text-sm font-medium text-foreground">Filters</span>
+    <div className="flex flex-wrap items-center gap-3 mb-6 p-4 rounded-xl bg-card border border-border">
+      {/* Week Selector */}
+      <div className="flex items-center gap-2">
+        <Calendar className="w-4 h-4 text-muted-foreground" />
+        <select
+          value={selectedWeek}
+          onChange={(e) => onFilterChange(e.target.value, unitIdFilter, modelFilter)}
+          className="bg-background border border-border rounded-lg px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+        >
+          {availableWeeks.length === 0 && (
+            <option value="">No data available</option>
+          )}
+          {availableWeeks.map((w) => (
+            <option key={w} value={w}>
+              Week {w}
+            </option>
+          ))}
+        </select>
       </div>
 
-      <div className="space-y-1.5">
-        <Label className="text-xs text-muted-foreground uppercase tracking-wide">Week</Label>
-        <WeekNavigator
-          currentWeek={selectedWeek}
-          onWeekChange={onWeekChange}
-          availableWeeks={availableWeeks.length > 0 ? availableWeeks : undefined}
+      {/* Model Filter */}
+      <div className="flex items-center gap-2">
+        <Filter className="w-4 h-4 text-muted-foreground" />
+        <select
+          value={modelFilter}
+          onChange={(e) => onFilterChange(selectedWeek, unitIdFilter, e.target.value as Model | "all")}
+          className="bg-background border border-border rounded-lg px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+        >
+          {MODEL_FILTER_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* Unit ID Filter */}
+      <div className="flex items-center gap-2 flex-1 min-w-[200px]">
+        <Search className="w-4 h-4 text-muted-foreground" />
+        <input
+          type="text"
+          placeholder="Filter by Unit ID..."
+          value={unitIdFilter}
+          onChange={(e) => onFilterChange(selectedWeek, e.target.value, modelFilter)}
+          className="bg-background border border-border rounded-lg px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary flex-1"
         />
       </div>
 
-      <div className="space-y-1.5">
-        <Label className="text-xs text-muted-foreground uppercase tracking-wide">Model</Label>
-        <Select value={selectedModel} onValueChange={(v) => onModelChange(v as UnitModel | 'ALL')}>
-          <SelectTrigger className="w-36 bg-secondary border-border">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="ALL">All Models</SelectItem>
-            {ALL_MODELS.map(model => (
-              <SelectItem key={model} value={model}>
-                {MODEL_LABELS[model]}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="space-y-1.5">
-        <Label className="text-xs text-muted-foreground uppercase tracking-wide">Unit ID</Label>
-        <Select
-          value={selectedUnitId}
-          onValueChange={onUnitIdChange}
-          disabled={unitIds.length === 0}
-        >
-          <SelectTrigger className="w-44 bg-secondary border-border">
-            <SelectValue placeholder="All Units" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="ALL">All Units</SelectItem>
-            {unitIds.map(id => (
-              <SelectItem key={id} value={id}>
-                {id}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="ml-auto">
-        <Button
-          variant="outline"
-          onClick={() => exportToCSV(filteredEntries, selectedWeek, selectedModel, selectedUnitId)}
-          disabled={filteredEntries.length === 0}
-          className="border-primary/30 text-primary hover:bg-primary/10 gap-2"
-        >
-          <Download className="w-4 h-4" />
-          Export CSV
-        </Button>
-      </div>
+      {/* Export Button */}
+      <button
+        onClick={handleExportCSV}
+        disabled={entries.length === 0}
+        className="flex items-center gap-2 px-4 py-1.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+      >
+        <Download className="w-4 h-4" />
+        Export CSV
+      </button>
     </div>
   );
 }
