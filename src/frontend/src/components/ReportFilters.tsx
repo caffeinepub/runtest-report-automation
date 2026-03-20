@@ -31,7 +31,21 @@ function calcPct(
 
 function flavourLabel(f: string): string {
   if (!f || f.trim() === "") return "—";
-  return f.charAt(0).toUpperCase() + f.slice(1);
+  const lower = f.trim().toLowerCase();
+  switch (lower) {
+    case "aqi":
+      return "AQI";
+    case "standard":
+      return "Lite";
+    case "deluxe": {
+      const custom = localStorage.getItem("runtest_others_flavour_label");
+      return custom?.trim() ? custom.trim() : "Others";
+    }
+    case "premium":
+      return "Premium";
+    default:
+      return f.charAt(0).toUpperCase() + f.slice(1);
+  }
 }
 
 function locationLabel(l: string): string {
@@ -43,6 +57,10 @@ function modelLabel(m: string): string {
   if (m === "N135") return "N13.5";
   if (m === "N125") return "N12.5";
   if (m === "N13") return "N13";
+  if (m === "others") {
+    const custom = localStorage.getItem("runtest_others_model_label");
+    return custom?.trim() ? custom.trim() : "Others";
+  }
   return m;
 }
 

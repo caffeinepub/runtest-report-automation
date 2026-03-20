@@ -9,6 +9,8 @@ export interface ParsedRecord {
   storedPktCount: number;
   weekYear?: string;
   rawRow?: Record<string, string>; // raw row data keyed by column name
+  startDate?: string; // earliest date from column A
+  endDate?: string; // latest date from column A
 }
 
 export interface ParseDebugInfo {
@@ -81,6 +83,107 @@ function getISOWeekLabel(date: Date): string {
   return `W${String(weekNo).padStart(2, "0")}-${d.getUTCFullYear()}`;
 }
 
+/**
+ * Format a Date as DD/MM/YYYY for display.
+ */
+function formatDate(date: Date): string {
+  const dd = String(date.getDate()).padStart(2, "0");
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const yyyy = date.getFullYear();
+  return `${dd}/${mm}/${yyyy}`;
+}
+
+/**
+ * Convert an Excel serial number to a JS Date.
+ * Excel epoch: Dec 30, 1899. Serial 1 = Jan 1, 1900.
+ * Handles the Excel 1900 leap year bug (serial 60 is skipped).
+ */
+function excelSerialToDate(serial: number): Date | null {
+  if (serial < 1 || serial > 2958465) return null; // valid range ~1900–9999
+  // Adjust for Excel's erroneous leap year 1900
+  const adjustedSerial = serial > 59 ? serial - 1 : serial;
+  const msPerDay = 86400000;
+  const excelEpoch = new Date(Date.UTC(1899, 11, 31)); // Dec 31, 1899
+  const date = new Date(excelEpoch.getTime() + adjustedSerial * msPerDay);
+  if (Number.isNaN(date.getTime())) return null;
+  return date;
+}
+
+/**
+ * Try to parse a date value that may be:
+ * - A JS Date object (from SheetJS cellDates:true)
+ * - An Excel serial number string (e.g. "45736")
+ * - An ISO / human-readable date string
+ * - "YYYY-MM-DD HH:MM:SS" (space separator, Waggle Portal export)
+ * - "DD/MM/YYYY" or "DD/MM/YYYY HH:MM:SS"
+ * - "MM/DD/YYYY" (US format fallback)
+ */
+function parseCellDate(raw: string): Date | null {
+  if (!raw || raw.trim() === "") return null;
+  const trimmed = raw.trim();
+
+  // Try Excel serial number first (pure integer string, e.g. "45736")
+  const serial = Number(trimmed);
+  if (Number.isInteger(serial) && serial > 30000 && serial < 60000) {
+    return excelSerialToDate(serial);
+  }
+
+  // Handle "YYYY-MM-DD HH:MM:SS" — replace space with T for ISO parsing
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(trimmed)) {
+    const iso = trimmed.replace(" ", "T");
+    const d = new Date(iso);
+    if (
+      !Number.isNaN(d.getTime()) &&
+      d.getFullYear() >= 2000 &&
+      d.getFullYear() <= 2100
+    )
+      return d;
+  }
+
+  // Handle "DD/MM/YYYY" or "DD/MM/YYYY HH:MM:SS"
+  if (/^\d{1,2}\/\d{1,2}\/\d{4}/.test(trimmed)) {
+    const datePart = trimmed.split(" ")[0];
+    const parts = datePart.split("/");
+    if (parts.length === 3) {
+      const day = Number.parseInt(parts[0], 10);
+      const month = Number.parseInt(parts[1], 10);
+      const year = Number.parseInt(parts[2], 10);
+      // Try DD/MM/YYYY first
+      if (
+        day >= 1 &&
+        day <= 31 &&
+        month >= 1 &&
+        month <= 12 &&
+        year >= 2000 &&
+        year <= 2100
+      ) {
+        const d = new Date(Date.UTC(year, month - 1, day));
+        if (!Number.isNaN(d.getTime())) return d;
+      }
+      // Fallback: try MM/DD/YYYY
+      if (
+        month >= 1 &&
+        month <= 31 &&
+        day >= 1 &&
+        day <= 12 &&
+        year >= 2000 &&
+        year <= 2100
+      ) {
+        const d = new Date(Date.UTC(year, day - 1, month));
+        if (!Number.isNaN(d.getTime())) return d;
+      }
+    }
+  }
+
+  // Try standard JS date parsing (handles ISO strings like "2024-03-15T00:00:00.000Z")
+  const d = new Date(trimmed);
+  if (!Number.isNaN(d.getTime())) {
+    if (d.getFullYear() >= 2000 && d.getFullYear() <= 2100) return d;
+  }
+
+  return null;
+}
+
 // Detect per-packet-event-log format using flexible substring matching.
 // Supports all Waggle Portal column name variants ("Lat.", "Date/Time", etc.)
 function isPerPacketEventLogHeader(headers: string[]): boolean {
@@ -142,20 +245,14 @@ function findGpsStatusColumnIndex(headers: string[]): number {
 
 /**
  * Get the full base filename (without extension) to use as the unit ID.
- * Using the full filename guarantees each file maps to a unique unit record.
- * E.g. "S18025_PRD.xls" → "S18025_PRD", "Unit_A.xls" → "Unit_A"
  */
 function getUnitIdFromFilename(filename: string): string {
   if (!filename) return "unknown";
-  // Strip the file extension and trim whitespace
   return filename.replace(/\.[^.]+$/, "").trim() || "unknown";
 }
 
 /**
  * Pad a row array to at least `minLength` elements, filling missing slots with ''.
- * This is critical for XLS files where SheetJS may return sparse/short rows
- * when trailing cells are empty — the Address column (index 25) would be missing
- * from rows that don't have a value there, causing unitId to be unresolvable.
  */
 function padRow(row: string[], minLength: number): string[] {
   if (row.length >= minLength) return row;
@@ -168,7 +265,6 @@ function padRow(row: string[], minLength: number): string[] {
 
 /**
  * Safely get a cell value from a row by index.
- * Returns '' for missing/undefined cells regardless of row length.
  */
 function getCellValue(row: string[], index: number): string {
   if (index < 0) return "";
@@ -176,8 +272,16 @@ function getCellValue(row: string[], index: number): string {
   return val !== undefined && val !== null ? String(val).trim() : "";
 }
 
+/**
+ * Try to parse a date from column A (index 0) of a data row.
+ */
+function parseDateFromColA(row: string[], minRowWidth: number): Date | null {
+  const row0 = padRow(row, minRowWidth);
+  const raw = getCellValue(row0, 0);
+  return parseCellDate(raw);
+}
+
 // Parse rows in per-packet-event-log format
-// Each file = one device = one aggregated record. unitId is always the full base filename.
 function parsePerPacketFormat(
   headers: string[],
   dataRows: string[][],
@@ -204,16 +308,14 @@ function parsePerPacketFormat(
       h.trim().toLowerCase() === "datetime",
   );
 
-  // The minimum row width needed to access all relevant columns
   const minRowWidth = Math.max(
     pktStateIdx + 1,
     gpsStatusIdx + 1,
     dateIdx + 1,
     headers.length,
+    1, // at least column A (index 0)
   );
 
-  // Every file maps to exactly one unit — use the full base filename as the unit ID.
-  // This guarantees 12 files always = 12 unique unit records.
   const unitId = getUnitIdFromFilename(filename);
   const unitIdSource = `filename: "${unitId}"`;
 
@@ -227,13 +329,19 @@ function parsePerPacketFormat(
   let lastPktState = "";
   const skippedRows = 0;
 
+  // Column A is in DESCENDING order:
+  // - First valid date in column A = endDate (Last Reported = most recent)
+  // - Last valid date in column A = startDate (oldest = Start Date)
+  let firstColADate: Date | null = null;
+  let lastColADate: Date | null = null;
+
   for (const rawRow of dataRows) {
     const row = padRow(rawRow, minRowWidth);
     if (row.every((cell) => cell.trim() === "")) continue;
 
     const pktState = pktStateIdx >= 0 ? getCellValue(row, pktStateIdx) : "";
 
-    // Determine GPS validity — "GPS Status" column values: "Valid" / "Invalid"
+    // Determine GPS validity
     let isValidGps = false;
     if (gpsStatusIdx >= 0) {
       const gpsStatus = getCellValue(row, gpsStatusIdx).toLowerCase();
@@ -244,12 +352,24 @@ function parsePerPacketFormat(
         gpsStatus === "true";
     }
 
+    // Extract date from column A for start/end date tracking
+    // Dates are in descending order: first row = most recent (endDate), last row = oldest (startDate)
+    const rowDate = parseDateFromColA(rawRow, minRowWidth);
+    if (rowDate) {
+      if (firstColADate === null) {
+        // First valid date encountered = most recent (endDate / Last Reported)
+        firstColADate = rowDate;
+      }
+      // Always update last seen valid date = oldest (startDate)
+      lastColADate = rowDate;
+    }
+
     // Capture first row's date for week label
     if (dateIdx >= 0 && weekYear === getISOWeekLabel(new Date())) {
       const dateStr = getCellValue(row, dateIdx);
       if (dateStr) {
-        const parsed = new Date(dateStr);
-        if (!Number.isNaN(parsed.getTime())) {
+        const parsed = parseCellDate(dateStr);
+        if (parsed) {
           weekYear = getISOWeekLabel(parsed);
         }
       }
@@ -283,8 +403,11 @@ function parsePerPacketFormat(
     }
   }
 
-  // Always produce exactly 1 record per file — even if there are 0 data rows.
-  // This guarantees N files uploaded = N unit records in the dashboard.
+  // endDate = first valid column A date (most recent, top of descending list)
+  // startDate = last valid column A date (oldest, bottom of descending list)
+  const endDate = firstColADate ? formatDate(firstColADate) : undefined;
+  const startDate = lastColADate ? formatDate(lastColADate) : undefined;
+
   const records: ParsedRecord[] = [
     {
       unitId,
@@ -295,10 +418,11 @@ function parsePerPacketFormat(
       storedPktCount,
       weekYear,
       rawRow: rawRowObj,
+      startDate,
+      endDate,
     },
   ];
 
-  // Build sample rows for debug (first 3 data rows, padded)
   const sampleRows: Array<Record<string, string>> = [];
   for (let i = 0; i < Math.min(3, dataRows.length); i++) {
     const row = padRow(dataRows[i], minRowWidth);
@@ -309,7 +433,6 @@ function parsePerPacketFormat(
     sampleRows.push(obj);
   }
 
-  // Build resolved sample records
   const resolvedSampleRecords = records.slice(0, 3).map((r) => ({
     unitId: r.unitId,
     total: r.totalPkts,
@@ -346,7 +469,6 @@ function parseSummaryFormat(
     pktState: string;
   }>;
 } {
-  // Find column indices
   const findCol = (names: string[]): number => {
     for (const name of names) {
       const idx = headers.findIndex((h) =>
@@ -394,19 +516,25 @@ function parseSummaryFormat(
   ]);
   const dateIdx = findCol(["date", "datetime", "week"]);
 
-  const minRowWidth = headers.length;
+  const minRowWidth = Math.max(headers.length, 1);
 
   const records: ParsedRecord[] = [];
   let skippedRows = 0;
   const sampleRows: Array<Record<string, string>> = [];
 
+  // For summary format, column A dates are also in descending order.
+  // Collect all valid column A dates, then assign first = endDate, last = startDate.
+  const colADates: Date[] = [];
+
   for (const rawRow of dataRows) {
     const row = padRow(rawRow, minRowWidth);
     if (row.every((cell) => cell.trim() === "")) continue;
 
+    const colADate = parseDateFromColA(rawRow, minRowWidth);
+    if (colADate) colADates.push(colADate);
+
     let unitId = unitIdIdx >= 0 ? getCellValue(row, unitIdIdx) : "";
     if (!unitId || !isValidUnitId(unitId)) {
-      // Fall back to full base filename for this file
       unitId = getUnitIdFromFilename(filename);
     }
 
@@ -436,8 +564,8 @@ function parseSummaryFormat(
     if (dateIdx >= 0) {
       const dateStr = getCellValue(row, dateIdx);
       if (dateStr) {
-        const parsed = new Date(dateStr);
-        if (!Number.isNaN(parsed.getTime())) {
+        const parsed = parseCellDate(dateStr);
+        if (parsed) {
           weekYear = getISOWeekLabel(parsed);
         }
       }
@@ -457,9 +585,24 @@ function parseSummaryFormat(
       storedPktCount: storedPkts,
       weekYear,
       rawRow: rowObj,
+      // Dates will be set after collecting all rows
+      startDate: undefined,
+      endDate: undefined,
     });
 
     if (sampleRows.length < 3) sampleRows.push(rowObj);
+  }
+
+  // Assign start/end dates to all records based on column A ordering:
+  // First valid date = endDate (most recent / Last Reported)
+  // Last valid date = startDate (oldest / Start Date)
+  if (colADates.length > 0) {
+    const endDate = formatDate(colADates[0]);
+    const startDate = formatDate(colADates[colADates.length - 1]);
+    for (const rec of records) {
+      rec.endDate = endDate;
+      rec.startDate = startDate;
+    }
   }
 
   const resolvedSampleRecords = records.slice(0, 3).map((r) => ({
@@ -496,7 +639,6 @@ export function parseCSVData(csvText: string, filename = ""): ParseResult {
   const lines = csvText.split(/\r?\n/);
   const rows: string[][] = lines
     .map((line) => {
-      // Simple CSV parse (handles quoted fields)
       const result: string[] = [];
       let current = "";
       let inQuotes = false;
@@ -520,7 +662,6 @@ export function parseCSVData(csvText: string, filename = ""): ParseResult {
 }
 
 export function parseXLSData(workbook: unknown, filename = ""): ParseResult {
-  // Use SheetJS (XLSX) loaded globally via CDN
   const XLSX = (
     window as unknown as {
       XLSX: {
@@ -553,33 +694,38 @@ export function parseXLSData(workbook: unknown, filename = ""): ParseResult {
   const sheetName = wb.SheetNames[0];
   const sheet = wb.Sheets[sheetName];
 
-  // Ensure the sheet's used range covers all columns including trailing ones (e.g. Address at col 25).
-  // SheetJS may under-report the range for .xls files if trailing cells are empty.
-  // We expand the range to at least 40 columns (AO) to cover the full Waggle Portal export layout.
   if (sheet["!ref"]) {
     try {
       const range = XLSX.utils.decode_range(sheet["!ref"]);
       if (range.e.c < 39) {
-        range.e.c = 39; // expand to column 40 (index 39) to ensure Address col 25 is included
+        range.e.c = 39;
         sheet["!ref"] = XLSX.utils.encode_range(range);
       }
     } catch {
-      // If range manipulation fails, proceed with original ref
+      // proceed with original ref
     }
   }
 
-  // Get raw array of arrays; defval:'' fills empty cells within the used range
+  // Use cellDates:true so SheetJS returns Date objects for date cells
+  // instead of Excel serial numbers
   const rawData = XLSX.utils.sheet_to_json(sheet, {
     header: 1,
     defval: "",
+    cellDates: true,
   }) as unknown[][];
 
-  // Convert all cell values to strings and filter out fully-empty rows
   const rows: string[][] = rawData
     .map((row) =>
-      (row as unknown[]).map((c) =>
-        c !== undefined && c !== null ? String(c) : "",
-      ),
+      (row as unknown[]).map((c) => {
+        if (c === undefined || c === null) return "";
+        // If SheetJS returned a Date object (from cellDates:true), convert to ISO string
+        // so parseCellDate can reliably parse it later
+        if (c instanceof Date) {
+          if (Number.isNaN(c.getTime())) return "";
+          return c.toISOString();
+        }
+        return String(c);
+      }),
     )
     .filter((row) => row.some((c) => c.trim() !== ""));
 
@@ -588,7 +734,6 @@ export function parseXLSData(workbook: unknown, filename = ""): ParseResult {
 
 function parseRows(rows: string[][], filename: string): ParseResult {
   if (rows.length < 2) {
-    // Even if the file has < 2 rows, still produce 1 unit record from the filename
     const unitId = getUnitIdFromFilename(filename);
     return {
       records: [
@@ -675,8 +820,6 @@ function parseRows(rows: string[][], filename: string): ParseResult {
     sampleRows = result.sampleRows;
     resolvedSampleRecords = result.resolvedSampleRecords;
 
-    // Guarantee 1 record per file — if summary format produced 0 records,
-    // inject a zero-count placeholder using the filename as unit ID.
     if (records.length === 0) {
       const unitId = getUnitIdFromFilename(filename);
       records = [

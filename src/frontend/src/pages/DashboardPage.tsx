@@ -19,6 +19,7 @@ const MODEL_DISPLAY: Record<Model, string> = {
   [Model.N135]: "N13.5",
   [Model.N13]: "N13",
   [Model.N125]: "N12.5",
+  [Model.others]: "Others",
 };
 
 function getWeekLabel(weekYear: string): string {

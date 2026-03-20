@@ -36,13 +36,13 @@ function modelLabel(m: string): string {
   if (m === "N135") return "N13.5";
   if (m === "N125") return "N12.5";
   if (m === "N13") return "N13";
+  if (m === "others") {
+    const custom = localStorage.getItem("runtest_others_model_label");
+    return custom?.trim() ? custom.trim() : "Others";
+  }
   return m;
 }
 
-/**
- * Maps backend Flavour enum values to human-readable display labels.
- * Backend stores: 'aqi', 'premium', 'standard', 'deluxe'
- */
 function flavourLabel(f: string): string {
   if (!f || f.trim() === "") return "—";
   const lower = f.trim().toLowerCase();
@@ -52,12 +52,11 @@ function flavourLabel(f: string): string {
     case "standard":
       return "Lite";
     case "deluxe": {
-      // Check for custom "Others" label stored in localStorage
       const custom = localStorage.getItem("runtest_others_flavour_label");
       return custom?.trim() ? custom.trim() : "Others";
     }
     case "premium":
-      return "Premium"; // backward compat
+      return "Premium";
     default:
       return f.charAt(0).toUpperCase() + f.slice(1);
   }
@@ -71,6 +70,26 @@ function locationLabel(l: string): string {
 function calcPct(numerator: number, denominator: number): string {
   if (denominator === 0) return "—";
   return `${((numerator / denominator) * 100).toFixed(1)}%`;
+}
+
+function calcPctValue(numerator: number, denominator: number): number | null {
+  if (denominator === 0) return null;
+  return (numerator / denominator) * 100;
+}
+
+/** Read per-unit dates from localStorage */
+function getUnitDates(unitId: string): {
+  startDate?: string;
+  endDate?: string;
+} {
+  try {
+    const raw = localStorage.getItem("runtest_unit_dates") || "{}";
+    const store: Record<string, { startDate?: string; endDate?: string }> =
+      JSON.parse(raw);
+    return store[unitId] || {};
+  } catch {
+    return {};
+  }
 }
 
 const WeeklyReportTable: React.FC<WeeklyReportTableProps> = ({
@@ -126,7 +145,6 @@ const WeeklyReportTable: React.FC<WeeklyReportTableProps> = ({
     [entries],
   );
 
-  // Use consistent distinct unit count
   const distinctUnitCount = useMemo(
     () => countDistinctUnits(entries),
     [entries],
@@ -214,6 +232,12 @@ const WeeklyReportTable: React.FC<WeeklyReportTableProps> = ({
                 Location <SortIcon k="location" />
               </Button>
             </TableHead>
+            <TableHead className="text-xs font-semibold text-muted-foreground">
+              Start Date
+            </TableHead>
+            <TableHead className="text-xs font-semibold text-muted-foreground">
+              Last Reported
+            </TableHead>
             <TableHead className="text-xs font-semibold text-muted-foreground text-right">
               <Button
                 variant="ghost"
@@ -277,6 +301,12 @@ const WeeklyReportTable: React.FC<WeeklyReportTableProps> = ({
             const total = Number(entry.totalPkts);
             const stored = Number(entry.storedPkts);
             const valid = Number(entry.validGpsFixPkts);
+            const storedPctVal = calcPctValue(stored, total);
+            const validGpsPctVal = calcPctValue(valid, total);
+            const storedIsRed = storedPctVal !== null && storedPctVal > 5;
+            const validGpsIsRed =
+              validGpsPctVal !== null && validGpsPctVal < 90;
+            const { startDate, endDate } = getUnitDates(entry.unitId);
             return (
               <TableRow
                 key={`${entry.unitId}-${idx}`}
@@ -300,6 +330,12 @@ const WeeklyReportTable: React.FC<WeeklyReportTableProps> = ({
                 >
                   {locationLabel(entry.location ?? "")}
                 </TableCell>
+                <TableCell className="text-xs text-foreground/70 whitespace-nowrap">
+                  {startDate || "—"}
+                </TableCell>
+                <TableCell className="text-xs text-foreground/70 whitespace-nowrap">
+                  {endDate || "—"}
+                </TableCell>
                 <TableCell className="text-xs text-right tabular-nums">
                   {total.toLocaleString()}
                 </TableCell>
@@ -309,13 +345,21 @@ const WeeklyReportTable: React.FC<WeeklyReportTableProps> = ({
                 <TableCell className="text-xs text-right tabular-nums">
                   {stored.toLocaleString()}
                 </TableCell>
-                <TableCell className="text-xs text-right tabular-nums text-muted-foreground">
+                <TableCell
+                  className={`text-xs text-right tabular-nums font-semibold ${
+                    storedIsRed ? "text-red-400" : "text-muted-foreground"
+                  }`}
+                >
                   {calcPct(stored, total)}
                 </TableCell>
                 <TableCell className="text-xs text-right tabular-nums text-green-400">
                   {valid.toLocaleString()}
                 </TableCell>
-                <TableCell className="text-xs text-right tabular-nums text-green-300">
+                <TableCell
+                  className={`text-xs text-right tabular-nums font-semibold ${
+                    validGpsIsRed ? "text-red-400" : "text-green-300"
+                  }`}
+                >
                   {calcPct(valid, total)}
                 </TableCell>
                 {selectedColumns.map((col) => (
@@ -339,6 +383,8 @@ const WeeklyReportTable: React.FC<WeeklyReportTableProps> = ({
               Totals ({distinctUnitCount} unit
               {distinctUnitCount !== 1 ? "s" : ""})
             </TableCell>
+            <TableCell className="text-xs" />
+            <TableCell className="text-xs" />
             <TableCell className="text-xs" />
             <TableCell className="text-xs" />
             <TableCell className="text-xs" />

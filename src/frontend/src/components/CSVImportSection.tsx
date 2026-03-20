@@ -36,9 +36,8 @@ const MODEL_OPTIONS: { label: string; value: Model }[] = [
   { label: "N13", value: Model.N13 },
   { label: "N12.5", value: Model.N125 },
 ];
+const MODEL_OTHERS_VALUE = "__model_others__";
 
-// IMPORTANT: Flavour enum values must match backend exactly.
-// Flavour.aqi = "aqi", Flavour.premium = "premium", Flavour.standard = "standard", Flavour.deluxe = "deluxe"
 const FLAVOUR_OPTIONS: { label: string; value: Flavour }[] = [
   { label: "Lite", value: Flavour.standard },
   { label: "AQI", value: Flavour.aqi },
@@ -74,6 +73,24 @@ async function parseFile(file: File): Promise<ParsedRecord[]> {
   );
 }
 
+/** Persist start/end dates per unitId in localStorage */
+function saveDatesToLocalStorage(
+  unitId: string,
+  startDate: string | undefined,
+  endDate: string | undefined,
+) {
+  if (!startDate && !endDate) return;
+  try {
+    const raw = localStorage.getItem("runtest_unit_dates") || "{}";
+    const store: Record<string, { startDate?: string; endDate?: string }> =
+      JSON.parse(raw);
+    store[unitId] = { startDate, endDate };
+    localStorage.setItem("runtest_unit_dates", JSON.stringify(store));
+  } catch {
+    // ignore storage errors
+  }
+}
+
 export function CSVImportSection({
   currentWeek,
   selectedWeek,
@@ -83,12 +100,16 @@ export function CSVImportSection({
   const [isDragging, setIsDragging] = useState(false);
   const [showColumnMapping, setShowColumnMapping] = useState(false);
   const [importedWeek, setImportedWeek] = useState<string | null>(null);
-  const [selectedModel, setSelectedModel] = useState<Model | "">("");
+  const [selectedModel, setSelectedModel] = useState<
+    Model | typeof MODEL_OTHERS_VALUE | ""
+  >("");
   const [selectedFlavour, setSelectedFlavour] = useState<
     Flavour | typeof OTHERS_VALUE | ""
   >("");
   const [customFlavour, setCustomFlavour] = useState("");
   const [customFlavourError, setCustomFlavourError] = useState("");
+  const [customModel, setCustomModel] = useState("");
+  const [customModelError, setCustomModelError] = useState("");
   const [location, setLocation] = useState("");
   const [locationError, setLocationError] = useState("");
   const [isUploading, setIsUploading] = useState(false);
@@ -96,10 +117,8 @@ export function CSVImportSection({
   const directUpsert = useDirectUpsert();
 
   const isOthers = selectedFlavour === OTHERS_VALUE;
+  const isModelOthers = selectedModel === MODEL_OTHERS_VALUE;
 
-  // Resolve the backend Flavour enum value:
-  // - If a known flavour is selected, use it directly (it IS already a Flavour enum value)
-  // - If "Others" is selected, fall back to Flavour.deluxe (closest available)
   const backendFlavour: Flavour | "" = isOthers
     ? Flavour.deluxe
     : (selectedFlavour as Flavour | "");
@@ -108,6 +127,7 @@ export function CSVImportSection({
     selectedModel !== "" &&
     selectedFlavour !== "" &&
     (!isOthers || customFlavour.trim() !== "") &&
+    (!isModelOthers || customModel.trim() !== "") &&
     location.trim() !== "";
 
   const activeWeek = selectedWeek ?? currentWeek ?? "";
@@ -119,11 +139,19 @@ export function CSVImportSection({
     );
   };
 
+  const getModelDisplayLabel = () => {
+    if (isModelOthers) return customModel.trim() || "Others";
+    return MODEL_OPTIONS.find((m) => m.value === selectedModel)?.label ?? "";
+  };
+
   const processFiles = useCallback(
     async (fileList: File[]) => {
-      // Validate before processing
       let hasValidationError = false;
 
+      if (isModelOthers && !customModel.trim()) {
+        setCustomModelError("Please enter a custom model name.");
+        hasValidationError = true;
+      }
       if (isOthers && !customFlavour.trim()) {
         setCustomFlavourError("Please enter a custom flavour name.");
         hasValidationError = true;
@@ -135,18 +163,19 @@ export function CSVImportSection({
       if (hasValidationError || !canUpload || !selectedModel || !backendFlavour)
         return;
 
-      const model = selectedModel as Model;
+      const model = (isModelOthers ? Model.others : selectedModel) as Model;
       const flavour = backendFlavour as Flavour;
 
-      // Persist the custom "Others" label so WeeklyReportTable can display it
       if (isOthers && customFlavour.trim()) {
         localStorage.setItem(
           "runtest_others_flavour_label",
           customFlavour.trim(),
         );
       }
+      if (isModelOthers && customModel.trim()) {
+        localStorage.setItem("runtest_others_model_label", customModel.trim());
+      }
 
-      // Initialize all file statuses as "pending"
       const newFileStatuses: FileStatus[] = fileList.map((f) => ({
         name: f.name,
         status: "pending" as const,
@@ -156,7 +185,6 @@ export function CSVImportSection({
       setImportedWeek(null);
       setIsUploading(true);
 
-      // Step 1: Parse all files first, collecting records and tracking per-file results
       type FileParseResult =
         | { ok: true; records: ParsedRecord[] }
         | { ok: false; error: string };
@@ -207,9 +235,7 @@ export function CSVImportSection({
         }
       }
 
-      // Guarantee 1 record per file — if a file parsed OK but produced 0 records,
-      // inject a zero-count placeholder using the filename as unit ID.
-      // This ensures N files uploaded always = N unit records in the dashboard.
+      // Guarantee 1 record per file
       for (let i = 0; i < fileList.length; i++) {
         const result = parseResults[i];
         if (result?.ok && result.records.length === 0) {
@@ -229,9 +255,15 @@ export function CSVImportSection({
         }
       }
 
-      // Step 2: Aggregate ALL successfully parsed records into one batch.
-      // Use a Map keyed by unitId+weekYear to deduplicate — last record wins,
-      // matching the backend's upsert semantics. This ensures the count is predictable.
+      // Save dates to localStorage for each record
+      for (const result of parseResults) {
+        if (result.ok) {
+          for (const r of result.records) {
+            saveDatesToLocalStorage(r.unitId, r.startDate, r.endDate);
+          }
+        }
+      }
+
       const recordMap = new Map<
         string,
         {
@@ -253,7 +285,7 @@ export function CSVImportSection({
       for (const result of parseResults) {
         if (result.ok) {
           for (const r of result.records) {
-            const week = activeWeek; // always use user-selected week for consistent storage
+            const week = activeWeek;
             if (!detectedWeek) detectedWeek = week;
 
             const key = `${r.unitId}__${week}`;
@@ -277,12 +309,10 @@ export function CSVImportSection({
 
       const allRecords = Array.from(recordMap.values());
 
-      // Step 3: Send all records in a single batch call to avoid race conditions
       if (allRecords.length > 0) {
         try {
           await directUpsert.mutateAsync(allRecords);
 
-          // Mark all successfully parsed files as done
           setFiles((prev) =>
             prev.map((f, idx) => {
               const relIdx = idx - startIndex;
@@ -300,7 +330,6 @@ export function CSVImportSection({
             onImportSuccess?.(detectedWeek);
           }
         } catch (err) {
-          // Mark all pending/parsing files as error
           setFiles((prev) =>
             prev.map((f, idx) => {
               const relIdx = idx - startIndex;
@@ -319,7 +348,6 @@ export function CSVImportSection({
           );
         }
       } else {
-        // No records to upload — mark parsed files as done (0 records)
         setFiles((prev) =>
           prev.map((f, idx) => {
             const relIdx = idx - startIndex;
@@ -346,6 +374,8 @@ export function CSVImportSection({
       location,
       isOthers,
       customFlavour,
+      isModelOthers,
+      customModel,
     ],
   );
 
@@ -387,6 +417,7 @@ export function CSVImportSection({
   const missingFields: string[] = [];
   if (!selectedModel) missingFields.push("Model");
   if (!selectedFlavour) missingFields.push("Flavour");
+  if (isModelOthers && !customModel.trim()) missingFields.push("Custom Model");
   if (isOthers && !customFlavour.trim()) missingFields.push("Custom Flavour");
   if (!location.trim()) missingFields.push("Location");
 
@@ -403,20 +434,64 @@ export function CSVImportSection({
             >
               Model <span className="text-destructive">*</span>
             </label>
-            <select
-              id="csv-model-select"
-              value={selectedModel}
-              onChange={(e) => setSelectedModel(e.target.value as Model | "")}
-              className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-              data-ocid="upload.model.select"
-            >
-              <option value="">— Select Model —</option>
-              {MODEL_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
+            {isModelOthers ? (
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={customModel}
+                  onChange={(e) => {
+                    setCustomModel(e.target.value);
+                    if (e.target.value.trim()) setCustomModelError("");
+                  }}
+                  placeholder="Enter custom model…"
+                  data-ocid="upload.model.input"
+                  className={`flex-1 bg-background border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary ${
+                    customModelError ? "border-destructive" : "border-border"
+                  }`}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedModel("");
+                    setCustomModel("");
+                    setCustomModelError("");
+                  }}
+                  className="flex items-center justify-center w-9 h-9 rounded-lg border border-border bg-background text-muted-foreground hover:text-foreground hover:border-primary transition-colors"
+                  title="Back to dropdown"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            ) : (
+              <select
+                id="csv-model-select"
+                value={selectedModel}
+                onChange={(e) =>
+                  setSelectedModel(
+                    e.target.value as Model | typeof MODEL_OTHERS_VALUE | "",
+                  )
+                }
+                className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                data-ocid="upload.model.select"
+              >
+                <option value="">— Select Model —</option>
+                {MODEL_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+                <option value={MODEL_OTHERS_VALUE}>Others</option>
+              </select>
+            )}
+            {customModelError && (
+              <p
+                className="text-xs text-destructive flex items-center gap-1 mt-1"
+                data-ocid="upload.model.error_state"
+              >
+                <AlertCircle className="w-3 h-3" />
+                {customModelError}
+              </p>
+            )}
           </div>
 
           {/* Flavour */}
@@ -532,11 +607,8 @@ export function CSVImportSection({
         ) : (
           <p className="text-xs text-green-400 flex items-center gap-1.5">
             <CheckCircle className="w-3.5 h-3.5 flex-shrink-0" />
-            Files will be tagged as:{" "}
-            <strong>
-              {MODEL_OPTIONS.find((m) => m.value === selectedModel)?.label}
-            </strong>{" "}
-            / <strong>{getFlavourDisplayLabel()}</strong>
+            Files will be tagged as: <strong>{getModelDisplayLabel()}</strong> /{" "}
+            <strong>{getFlavourDisplayLabel()}</strong>
             {" / "}
             <strong>{location.trim()}</strong>
           </p>
@@ -604,7 +676,6 @@ export function CSVImportSection({
         </button>
         {showColumnMapping && (
           <div className="mt-3">
-            {/* Pass empty array — no file columns available until a file is parsed */}
             <ColumnMappingSelector availableColumns={[]} />
           </div>
         )}

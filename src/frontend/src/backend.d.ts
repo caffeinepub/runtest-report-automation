@@ -28,7 +28,8 @@ export enum Flavour {
 export enum Model {
     N13 = "N13",
     N125 = "N125",
-    N135 = "N135"
+    N135 = "N135",
+    others = "others"
 }
 export interface backendInterface {
     addDisplayColumn(columnName: string): Promise<void>;

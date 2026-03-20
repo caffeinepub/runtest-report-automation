@@ -110,7 +110,8 @@ export enum Flavour {
 export enum Model {
     N13 = "N13",
     N125 = "N125",
-    N135 = "N135"
+    N135 = "N135",
+    others = "others"
 }
 export interface backendInterface {
     addDisplayColumn(columnName: string): Promise<void>;
@@ -323,7 +324,7 @@ function from_candid_variant_n5(_uploadFile: (file: ExternalBlob) => Promise<Uin
 } | {
     N135: null;
 }): Model {
-    return "N13" in value ? Model.N13 : "N125" in value ? Model.N125 : "N135" in value ? Model.N135 : value;
+    return "N13" in value ? Model.N13 : "N125" in value ? Model.N125 : "N135" in value ? Model.N135 : "others" in value ? Model.others : value;
 }
 function from_candid_variant_n7(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
     aqi: null;
@@ -365,6 +366,8 @@ function to_candid_variant_n10(_uploadFile: (file: ExternalBlob) => Promise<Uint
     N125: null;
 } | {
     N135: null;
+} | {
+    others: null;
 } {
     return value == Model.N13 ? {
         N13: null
@@ -372,6 +375,8 @@ function to_candid_variant_n10(_uploadFile: (file: ExternalBlob) => Promise<Uint
         N125: null
     } : value == Model.N135 ? {
         N135: null
+    } : value == Model.others ? {
+        others: null
     } : value;
 }
 function to_candid_variant_n14(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: Flavour): {

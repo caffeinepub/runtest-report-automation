@@ -12,6 +12,7 @@ export const Model = IDL.Variant({
   'N13' : IDL.Null,
   'N125' : IDL.Null,
   'N135' : IDL.Null,
+  'others' : IDL.Null,
 });
 export const Flavour = IDL.Variant({
   'aqi' : IDL.Null,
@@ -90,6 +91,7 @@ export const idlFactory = ({ IDL }) => {
     'N13' : IDL.Null,
     'N125' : IDL.Null,
     'N135' : IDL.Null,
+    'others' : IDL.Null,
   });
   const Flavour = IDL.Variant({
     'aqi' : IDL.Null,

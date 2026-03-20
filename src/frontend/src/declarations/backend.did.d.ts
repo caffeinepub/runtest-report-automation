@@ -16,7 +16,8 @@ export type Flavour = { 'aqi' : null } |
   { 'standard' : null };
 export type Model = { 'N13' : null } |
   { 'N125' : null } |
-  { 'N135' : null };
+  { 'N135' : null } |
+  { 'others' : null };
 export interface ReportEntry {
   'model' : Model,
   'validGpsFixPkts' : bigint,

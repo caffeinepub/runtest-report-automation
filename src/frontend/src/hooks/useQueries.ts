@@ -13,11 +13,17 @@ export { Model as UnitModel };
 // Model display labels
 export const MODEL_LABELS: Record<Model, string> = {
   [Model.N135]: "N13.5",
+  [Model.others]: "Others",
   [Model.N13]: "N13",
   [Model.N125]: "N12.5",
 };
 
-export const ALL_MODELS: Model[] = [Model.N135, Model.N13, Model.N125];
+export const ALL_MODELS: Model[] = [
+  Model.N135,
+  Model.N13,
+  Model.N125,
+  Model.others,
+];
 
 // ── Week helpers ──────────────────────────────────────────────────────────────
 

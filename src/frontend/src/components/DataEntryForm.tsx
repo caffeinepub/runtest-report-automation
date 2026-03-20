@@ -55,6 +55,7 @@ const ALL_FLAVOURS: Flavour[] = [
 ];
 
 const OTHERS_VALUE = "__others__";
+const MODEL_OTHERS_VALUE = "__model_others__";
 
 interface UnitRow {
   id: string;
@@ -97,7 +98,11 @@ function validateRow(row: UnitRow): string | undefined {
 }
 
 export function DataEntryForm() {
-  const [selectedModel, setSelectedModel] = useState<Model>(Model.N135);
+  const [selectedModel, setSelectedModel] = useState<
+    Model | typeof MODEL_OTHERS_VALUE
+  >(Model.N135);
+  const [customModel, setCustomModel] = useState("");
+  const [customModelError, setCustomModelError] = useState("");
   const [selectedFlavour, setSelectedFlavour] = useState<
     Flavour | typeof OTHERS_VALUE
   >(Flavour.standard);
@@ -114,11 +119,20 @@ export function DataEntryForm() {
   const upsertReport = useUpsertReport();
 
   const isOthers = selectedFlavour === OTHERS_VALUE;
+  const isModelOthers = selectedModel === MODEL_OTHERS_VALUE;
 
   // For backend: "Others" maps to Flavour.deluxe
   const backendFlavour: Flavour = isOthers
     ? Flavour.deluxe
     : (selectedFlavour as Flavour);
+  const backendModel: Model = isModelOthers
+    ? Model.others
+    : (selectedModel as Model);
+
+  const getModelDisplayLabel = () => {
+    if (isModelOthers) return customModel.trim() || "Others";
+    return MODEL_LABELS[selectedModel as Model] ?? selectedModel;
+  };
 
   const getFlavourDisplayLabel = () => {
     if (isOthers) return customFlavour.trim() || "Others";
@@ -150,6 +164,12 @@ export function DataEntryForm() {
   }, []);
 
   const handleSubmit = async () => {
+    // Validate model
+    if (isModelOthers && !customModel.trim()) {
+      setCustomModelError("Please enter a custom model name.");
+      toast.error("Please enter a custom model name.");
+      return;
+    }
     // Validate flavour
     if (isOthers && !customFlavour.trim()) {
       setCustomFlavourError("Please enter a custom flavour name.");
@@ -181,8 +201,14 @@ export function DataEntryForm() {
 
     for (const row of filledRows) {
       try {
+        if (isModelOthers && customModel.trim()) {
+          localStorage.setItem(
+            "runtest_others_model_label",
+            customModel.trim(),
+          );
+        }
         await upsertReport.mutateAsync({
-          model: selectedModel,
+          model: backendModel,
           flavour: backendFlavour,
           unitId: row.unitId.trim(),
           weekYear: weekLabel,
@@ -239,21 +265,59 @@ export function DataEntryForm() {
           <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
             Model
           </Label>
-          <Select
-            value={selectedModel}
-            onValueChange={(v) => setSelectedModel(v as Model)}
-          >
-            <SelectTrigger className="text-sm">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {ALL_MODELS.map((m) => (
-                <SelectItem key={m} value={m}>
-                  {MODEL_LABELS[m]}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          {isModelOthers ? (
+            <div className="flex gap-2">
+              <Input
+                value={customModel}
+                onChange={(e) => {
+                  setCustomModel(e.target.value);
+                  if (e.target.value.trim()) setCustomModelError("");
+                }}
+                placeholder="Custom model…"
+                className={`text-sm flex-1 ${customModelError ? "border-destructive" : ""}`}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="h-9 w-9 flex-shrink-0"
+                onClick={() => {
+                  setSelectedModel(Model.N135);
+                  setCustomModel("");
+                  setCustomModelError("");
+                }}
+                title="Back to dropdown"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          ) : (
+            <Select
+              value={selectedModel}
+              onValueChange={(v) => {
+                setSelectedModel(v as Model | typeof MODEL_OTHERS_VALUE);
+                setCustomModelError("");
+              }}
+            >
+              <SelectTrigger className="text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {ALL_MODELS.filter((m) => m !== Model.others).map((m) => (
+                  <SelectItem key={m} value={m}>
+                    {MODEL_LABELS[m]}
+                  </SelectItem>
+                ))}
+                <SelectItem value={MODEL_OTHERS_VALUE}>Others</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
+          {customModelError && (
+            <p className="text-xs text-destructive flex items-center gap-1 mt-1">
+              <AlertCircle className="w-3 h-3" />
+              {customModelError}
+            </p>
+          )}
         </div>
 
         {/* Flavour */}
@@ -529,7 +593,7 @@ export function DataEntryForm() {
       <p className="text-xs text-muted-foreground">
         Records will be tagged as:{" "}
         <span className="text-foreground font-medium">
-          {MODEL_LABELS[selectedModel]}
+          {getModelDisplayLabel()}
         </span>
         {" / "}
         <span className="text-foreground font-medium">
